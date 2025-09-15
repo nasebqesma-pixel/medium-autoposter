@@ -1,0 +1,112 @@
+import feedparser
+import os
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import re
+
+# --- الإعدادات ---
+RSS_URL = "https://fastyummyfood.com/feed"
+POSTED_LINKS_FILE = "posted_links.txt"
+
+def get_posted_links():
+    """يقرأ الروابط التي تم نشرها سابقًا من ملف."""
+    if not os.path.exists(POSTED_LINKS_FILE):
+        return set()
+    with open(POSTED_LINKS_FILE, "r", encoding='utf-8') as f:
+        return set(line.strip() for line in f)
+
+def add_posted_link(link):
+    """يضيف رابطًا جديدًا إلى ملف الروابط المنشورة."""
+    with open(POSTED_LINKS_FILE, "a", encoding='utf-8') as f:
+        f.write(link + "\n")
+
+def get_latest_post():
+    """يجلب أحدث مقال من RSS لم يتم نشره بعد."""
+    feed = feedparser.parse(RSS_URL)
+    posted_links = get_posted_links()
+    # يتم ترتيب المقالات عادة من الأحدث للأقدم، لذا سنعكسها
+    for entry in reversed(feed.entries):
+        if entry.link not in posted_links:
+            return entry
+    return None
+
+def clean_html(raw_html):
+    """ينظف HTML من الوسوم غير المرغوب فيها ويحتفظ بالأساسيات."""
+    # إزالة الوسوم التي تسبب مشاكل مثل <script> و <style>
+    cleanr = re.compile('<(script|style).*?>.*?</(script|style)>', re.DOTALL)
+    clean_text = re.sub(cleanr, '', raw_html)
+    return clean_text
+
+def main():
+    print("--- بدء تشغيل روبوت النشر على Medium (بواسطة الكوكي) ---")
+    
+    latest_post = get_latest_post()
+    if not latest_post:
+        print("لا توجد مقالات جديدة لنشرها.")
+        return
+
+    print(f"تم العثور على مقال جديد: {latest_post.title}")
+
+    # استرداد الكوكي من خزنة GitHub
+    cookie_value = os.environ.get("MEDIUM_COOKIE")
+    if not cookie_value:
+        print("خطأ: لم يتم العثور على كوكي الجلسة 'MEDIUM_COOKIE' في خزنة GitHub.")
+        return
+
+    # إعداد المتصفح
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("window-size=1920,1080")
+    driver = webdriver.Chrome(options=chrome_options)
+    
+    try:
+        # 1. حقن الكوكي لتسجيل الدخول المباشر
+        # يجب الذهاب إلى النطاق أولاً قبل إضافة الكوكي
+        print("جاري الذهاب إلى Medium لإعداد الجلسة...")
+        driver.get("https://medium.com/")
+        
+        print("جاري حقن كوكي المصادقة...")
+        # Medium يستخدم كوكي uid و sid. سنضيف كليهما لضمان الدخول.
+        driver.add_cookie({"name": "uid", "value": cookie_value, "domain": ".medium.com"})
+        driver.add_cookie({"name": "sid", "value": cookie_value, "domain": ".medium.com"})
+        
+        # 2. إنشاء مقال جديد
+        print("الانتقال إلى صفحة إنشاء مقال جديد...")
+        driver.get("https://medium.com/new-story")
+        
+        wait = WebDriverWait(driver, 20)
+
+        # إدخال العنوان
+        title_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'textarea[aria-label="Title"]')))
+        title_field.send_keys(latest_post.title)
+        
+        # إدخال المحتوى
+        content_html = clean_html(latest_post.summary)
+        # نضغط على حقل "Tell your story..."
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')))
+        story_field.click()
+
+        # لصق المحتوى باستخدام JavaScript
+        driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_html)
+        
+        print("تمت كتابة المقال.")
+        time.sleep(5) # انتظار للحفظ التلقائي
+
+        print("تم حفظ المقال كمسودة في حسابك على Medium بنجاح!")
+        add_posted_link(latest_post.link)
+
+    except Exception as e:
+        print(f"حدث خطأ فادح: {e}")
+        driver.save_screenshot("error_screenshot.png")
+    finally:
+        driver.quit()
+        print("--- تم إغلاق الروبوت ---")
+
+if __name__ == "__main__":
+    main()
