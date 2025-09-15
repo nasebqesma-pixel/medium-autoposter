@@ -25,15 +25,14 @@ jobs:
         run: pip install selenium feedparser webdriver-manager
 
       - name: Run Python Script
+        id: script # أضفنا ID هنا
         env:
           MEDIUM_COOKIE: ${{ secrets.MEDIUM_COOKIE }}
         run: python main.py
         
-      # --- الخطوة الجديدة: حفظ الأدلة عند الفشل أو النجاح ---
       - name: Upload Debug Artifacts
-        # هذه الخطوة ستعمل دائمًا، حتى لو فشلت الخطوة السابقة
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # **<-- هنا التغيير! من v3 إلى v4**
         with:
           name: debug-files
           path: |
