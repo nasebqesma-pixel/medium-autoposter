@@ -13,15 +13,13 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v3
 
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      # --- الخطوة الجديدة والمحسّنة لتثبيت Chrome ---
-      - name: Set up Chrome
-        uses: browser-actions/setup-chrome@v1
-      # --- انتهت الخطوة الجديدة ---
 
       - name: Install Python Dependencies
         run: pip install selenium feedparser webdriver-manager
@@ -30,3 +28,14 @@ jobs:
         env:
           MEDIUM_COOKIE: ${{ secrets.MEDIUM_COOKIE }}
         run: python main.py
+        
+      # --- الخطوة الجديدة: حفظ الأدلة عند الفشل أو النجاح ---
+      - name: Upload Debug Artifacts
+        # هذه الخطوة ستعمل دائمًا، حتى لو فشلت الخطوة السابقة
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-files
+          path: |
+            *.png
+            *.html
