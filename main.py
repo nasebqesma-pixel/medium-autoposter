@@ -11,7 +11,7 @@ import re
 from html import unescape
 
 # --- الإعدادات ---
-RSS_URL = "https://Forkandfoodie.com/feed"
+RSS_URL = "https://fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 
 def get_posted_links():
