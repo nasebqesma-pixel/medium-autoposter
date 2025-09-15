@@ -1,0 +1,41 @@
+name: Medium Auto Poster
+
+# متى يعمل الروبوت: كل 6 ساعات
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  # هذا السطر يسمح لك بتشغيله يدويًا من تبويب Actions
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # الخطوة 1: تنزيل نسخة من الكود الخاص بك
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      # الخطوة 2: إعداد بيئة عمل بايثون
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      # الخطوة 3: تثبيت متصفح Chrome
+      - name: Install Google Chrome
+        run: |
+          chmod +x ./install-chrome.sh
+          ./install-chrome.sh
+
+      # الخطوة 4: تثبيت المكتبات اللازمة للروبوت
+      - name: Install Dependencies
+        run: pip install selenium feedparser
+
+      # الخطوة 5: تشغيل الروبوت!
+      - name: Run Python Script
+        env:
+          # تمرير البيانات السرية للسكربت بأمان
+          MEDIUM_EMAIL: ${{ secrets.MEDIUM_EMAIL }}
+          MEDIUM_PASSWORD: ${{ secrets.MEDIUM_PASSWORD }}
+        run: python main.py
