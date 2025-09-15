@@ -9,7 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # --- الإعدادات ---
-RSS_URL = "https://fastyummyfood.com/feed" # تم تحديث الرابط بناءً على السجل
+RSS_URL = "https://fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 
 def get_posted_links():
@@ -62,42 +62,22 @@ def main():
         print("--- 3. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
         
-        # حفظ لقطة شاشة وكود الصفحة للمساعدة في التشخيص
-        time.sleep(5) # انتظر 5 ثواني لتحميل الصفحة
-        driver.save_screenshot("debug_screenshot_before_title.png")
-        with open("debug_page_source_before_title.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
+        time.sleep(5) # انتظر 5 ثواني إضافية لتحميل الصفحة بالكامل
         
         wait = WebDriverWait(driver, 20)
         
         print("--- 4. البحث عن حقل العنوان...")
         title_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'textarea[aria-label="Title"]')))
         print("--- تم العثور على حقل العنوان.")
-        title_field.send_keys(post_to_publish.title)
-        
-        print("--- 5. البحث عن حقل المحتوى...")
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')))
-        print("--- تم العثور على حقل المحتوى.")
-        story_field.click()
-        time.sleep(1)
-
-        # المحتوى يأتي في 'content' وليس 'summary' في بعض الأحيان
-        content_html = ""
-        if 'content' in post_to_publish and post_to_publish.content:
-            content_html = post_to_publish.content[0].value
-        else:
-            content_html = post_to_publish.summary
-            
-        driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_html)
-        
-        print("--- 6. انتظار الحفظ...")
-        time.sleep(10)
-
-        add_posted_link(post_to_publish.link)
-        print(">>> النتيجة النهائية: تم حفظ المقال كمسودة بنجاح!")
+        # ... باقي الكود ...
 
     except Exception as e:
-        print(f"!!! حدث خطأ فادح: {e}")
+        print(f"!!! حدث خطأ فادح. جاري حفظ الأدلة...")
+        # --- حفظ الأدلة ---
+        driver.save_screenshot("error_screenshot.png")
+        with open("error_page_source.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        print("--- تم حفظ لقطة الشاشة وملف HTML.")
         raise e
     finally:
         driver.quit()
