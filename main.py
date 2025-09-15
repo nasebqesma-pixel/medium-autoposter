@@ -11,7 +11,7 @@ import re
 from html import unescape
 
 # --- الإعدادات ---
-RSS_URL = "https://fastyummyfood.com/feed"
+RSS_URL = "https://Forkandfoodie.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 
 def get_posted_links():
@@ -22,29 +22,18 @@ def add_posted_link(link):
     with open(POSTED_LINKS_FILE, "a", encoding='utf-8') as f: f.write(link + "\n")
 
 def get_next_post_to_publish():
-    """
-    يجلب أقدم مقال لم يتم نشره بعد.
-    هذا يضمن النشر بالترتيب الزمني الصحيح.
-    """
     print(f"--- البحث عن مقالات جديدة في: {RSS_URL}")
     feed = feedparser.parse(RSS_URL)
-    
     if not feed.entries:
         print("!!! تحذير: الـ RSS فارغ أو لا يمكن الوصول إليه.")
         return None
-        
-    print(f"--- تم العثور على {len(feed.entries)} مقال في الـ RSS.")
-    
+    print(f"--- تم العثور на {len(feed.entries)} مقال في الـ RSS.")
     posted_links = get_posted_links()
-    
-    # نحن نقرأ المقالات من الأقدم إلى الأحدث (عكس الترتيب الافتراضي)
-    # للعثور على أول مقال لم يتم نشره
     for entry in reversed(feed.entries):
         if entry.link not in posted_links:
             print(f">>> تم تحديد المقال التالي للنشر: {entry.title}")
             return entry
-    
-    return None # لا يوجد مقالات جديدة لنشرها
+    return None
 
 def clean_html(raw_html):
     decoded_html = unescape(raw_html)
@@ -53,11 +42,10 @@ def clean_html(raw_html):
     return clean_text
 
 def main():
-    print("--- بدء تشغيل روبوت النشر (الإصدار النهائي v4) ---")
-    
+    print("--- بدء تشغيل روبوت النشر (الإصدار النهائي v5 - الصبور) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
-        print(">>> النتيجة: لا توجد مقالات جديدة لنشرها. المهمة انتهت بنجاح.")
+        print(">>> النتيجة: لا توجد مقالات جديدة. المهمة انتهت بنجاح.")
         return
 
     cookie_value = os.environ.get("MEDIUM_COOKIE")
@@ -83,24 +71,34 @@ def main():
         print("2. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
         
-        wait = WebDriverWait(driver, 30)
+        wait = WebDriverWait(driver, 45) # **زيادة مدة الانتظار القصوى إلى 45 ثانية**
 
-        print(f"3. كتابة العنوان: {post_to_publish.title}")
+        print("3. كتابة العنوان...")
         title_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'textarea[aria-label="Title"]')))
         title_field.send_keys(post_to_publish.title)
         
-        print("4. كتابة المحتوى...")
-        content_html = clean_html(post_to_publish.summary)
-        story_field_placeholder = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')))
-        story_field_placeholder.click()
-        time.sleep(1)
+        # --- الجزء المحسّن والأكثر أهمية ---
+        print("4. انتظار تحميل حقل المحتوى بشكل كامل...")
+        # سننتظر حتى يظهر العنصر ويصبح قابلاً للنقر عليه
+        story_field_placeholder = wait.until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')
+            )
+        )
+        
+        print("5. كتابة المحتوى...")
+        # استخدام النقر عبر JavaScript لضمان التفعيل
+        driver.execute_script("arguments[0].click();", story_field_placeholder)
+        time.sleep(1) # إعطاء فرصة للمعالج للاستجابة
 
+        content_html = clean_html(post_to_publish.summary)
+        # لصق المحتوى بطريقة آمنة
         driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_html)
         
-        print("5. انتظار الحفظ التلقائي...")
-        time.sleep(10)
+        print("6. انتظار الحفظ التلقائي...")
+        time.sleep(15) # **زيادة مدة انتظار الحفظ**
 
-        print("6. التحقق من نجاح العملية...")
+        print("7. التحقق من نجاح العملية...")
         sample_text = post_to_publish.title[:50]
         if sample_text in driver.page_source:
             print(">>> النجاح مؤكد! تم العثور على المحتوى في الصفحة.")
@@ -108,6 +106,7 @@ def main():
             print(">>> النتيجة النهائية: تم حفظ المقال كمسودة بنجاح!")
         else:
             print("!!! فشل التحقق! لم يتم العثور على المحتوى في الصفحة بعد الكتابة.")
+            driver.save_screenshot("verification_failed.png") # لقطة شاشة للتحقق
             raise Exception("Verification failed: Content not found on page after paste.")
 
     except Exception as e:
