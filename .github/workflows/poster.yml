@@ -21,18 +21,19 @@ jobs:
         with:
           python-version: '3.10'
 
+      # --- هنا التغيير: أضفنا selenium-stealth ---
       - name: Install Python Dependencies
-        run: pip install selenium feedparser webdriver-manager
+        run: pip install selenium feedparser webdriver-manager selenium-stealth
 
       - name: Run Python Script
-        id: script # أضفنا ID هنا
+        id: script
         env:
           MEDIUM_COOKIE: ${{ secrets.MEDIUM_COOKIE }}
         run: python main.py
         
       - name: Upload Debug Artifacts
         if: always()
-        uses: actions/upload-artifact@v4 # **<-- هنا التغيير! من v3 إلى v4**
+        uses: actions/upload-artifact@v4
         with:
           name: debug-files
           path: |
