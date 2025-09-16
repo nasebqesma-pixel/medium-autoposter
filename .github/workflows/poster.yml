@@ -5,6 +5,11 @@ on:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
+# --- هذا هو القسم الجديد الذي يمنح الإذن ---
+permissions:
+  contents: write
+# --- نهاية القسم الجديد ---
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,15 +36,12 @@ jobs:
           MEDIUM_UID_COOKIE: ${{ secrets.MEDIUM_UID_COOKIE }}
         run: python main.py
         
-      # --- هذا هو القسم الذي يحل المشكلة ---
       - name: Commit and Push Log File
         run: |
-          # تحقق أولاً مما إذا كان ملف السجل قد تم إنشاؤه
           if [ -f posted_links.txt ]; then
             git config --global user.name 'GitHub Actions Bot'
             git config --global user.email 'actions-bot@github.com'
             git add posted_links.txt
-            # قم بالـ commit فقط إذا كانت هناك تغييرات
             git diff --staged --quiet || git commit -m "Update posted links log"
             git push
           else
