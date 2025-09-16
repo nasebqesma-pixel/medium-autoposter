@@ -48,7 +48,7 @@ def extract_image_url_from_entry(entry):
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v13.1 (إصلاح معرّف الزر) ---")
+    print("--- بدء تشغيل الروبوت الناشر v13.2 (إصلاح نهائي لمعرّفات النشر) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -110,15 +110,14 @@ def main():
         time.sleep(5)
 
         print("--- 6. بدء عملية النشر...")
-        # --- هنا الإصلاح! ---
-        # المعرّف الجديد لزر النشر هو `publish-button` ولكن بدون `data-testid`
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        # --- نهاية الإصلاح ---
         publish_button.click()
         print("--- تم الضغط على زر 'Publish'.")
 
+        # --- هنا الإصلاحات الجديدة ---
         print("--- 7. إضافة الوسوم (Tags)...")
-        tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add topics"]')))
+        # المعرّف الجديد لحقل الوسوم يستخدم placeholder
+        tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder="Add topics..."]')))
         
         if hasattr(post_to_publish, 'tags'):
             tags_to_add = [tag.term for tag in post_to_publish.tags[:5]]
@@ -129,8 +128,10 @@ def main():
             print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
 
         print("--- 8. الضغط على زر النشر النهائي...")
-        # المعرّف هنا قد يكون صحيحًا، سنتركه كما هو
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="confirm-publish-button"]')))
+        # المعرّف الجديد لزر النشر النهائي
+        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publication-publish-button"]')))
+        # --- نهاية الإصلاحات ---
+        
         publish_now_button.click()
         
         time.sleep(10)
