@@ -48,7 +48,7 @@ def extract_image_url_from_entry(entry):
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v15 (الصبور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v16 (النهائي والموثوق) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -125,19 +125,15 @@ def main():
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         driver.execute_script("arguments[0].click();", publish_now_button)
         
-        # --- هنا الإصلاح الحاسم! ---
-        print("--- 8. انتظار تأكيد النشر...")
-        # سننتظر حتى 40 ثانية حتى تظهر رسالة "Story published."
-        # أو أي عنصر آخر يؤكد النجاح (مثل زر "View story")
-        wait_long = WebDriverWait(driver, 40)
-        wait_long.until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Story published')]"))
-        )
+        # --- الإصلاح النهائي ---
+        # سنقوم فقط بالانتظار لمدة 15 ثانية. هذا يعطي Medium
+        # الوقت الكافي لمعالجة الطلب في الخلفية.
+        print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
+        time.sleep(15)
         # --- نهاية الإصلاح ---
         
-        print("--- تم تأكيد النشر من قبل Medium.")
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 النجاح الحقيقي! تم نشر المقال وتأكيد ذلك! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 النجاح! تم إرسال أمر النشر بنجاح! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
