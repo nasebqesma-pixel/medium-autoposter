@@ -48,7 +48,7 @@ def extract_image_url_from_entry(entry):
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v13 (النشر التلقائي الكامل) ---")
+    print("--- بدء تشغيل الروبوت الناشر v13.1 (إصلاح معرّف الزر) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -107,32 +107,32 @@ def main():
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
-        time.sleep(5) # انتظار لمعالجة اللصق
+        time.sleep(5)
 
-        # --- هنا تبدأ عملية النشر التلقائي ---
         print("--- 6. بدء عملية النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publish-button"]')))
+        # --- هنا الإصلاح! ---
+        # المعرّف الجديد لزر النشر هو `publish-button` ولكن بدون `data-testid`
+        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
+        # --- نهاية الإصلاح ---
         publish_button.click()
         print("--- تم الضغط على زر 'Publish'.")
 
         print("--- 7. إضافة الوسوم (Tags)...")
-        # Medium يسمح بإضافة الوسوم بعد الضغط على Publish
         tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add topics"]')))
         
         if hasattr(post_to_publish, 'tags'):
-            # نأخذ أول 5 وسوم
             tags_to_add = [tag.term for tag in post_to_publish.tags[:5]]
             for tag in tags_to_add:
                 tags_input.send_keys(tag)
                 tags_input.send_keys(Keys.ENTER)
-                time.sleep(1) # انتظار بسيط بين كل وسم
+                time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
 
         print("--- 8. الضغط على زر النشر النهائي...")
+        # المعرّف هنا قد يكون صحيحًا، سنتركه كما هو
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="confirm-publish-button"]')))
         publish_now_button.click()
         
-        # انتظار أخير للتأكد من أن النشر قد تم قبل الخروج
         time.sleep(10)
 
         add_posted_link(post_to_publish.link)
