@@ -48,7 +48,7 @@ def extract_image_url_from_entry(entry):
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v16 (النهائي والموثوق) ---")
+    print("--- بدء تشغيل الروبوت الناشر v17 (الهجوم الثلاثي) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -73,6 +73,7 @@ def main():
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
     
     try:
+        # ... (الخطوات من 2 إلى 6 تبقى كما هي) ...
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
@@ -121,19 +122,48 @@ def main():
                 time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
 
-        print("--- 7. إرسال أمر النشر النهائي...")
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        driver.execute_script("arguments[0].click();", publish_now_button)
+        # --- هنا يبدأ الهجوم الثلاثي ---
+        print("--- 7. الهجوم على زر النشر النهائي...")
         
-        # --- الإصلاح النهائي ---
-        # سنقوم فقط بالانتظار لمدة 15 ثانية. هذا يعطي Medium
-        # الوقت الكافي لمعالجة الطلب في الخلفية.
-        print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
-        time.sleep(15)
-        # --- نهاية الإصلاح ---
+        # 1. تحديد موقع الزر
+        publish_now_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         
+        # 2. لقطة شاشة قبل الهجوم
+        driver.save_screenshot("debug_before_final_publish.png")
+        print("--- تم التقاط صورة قبل الضغط النهائي.")
+
+        # 3. الهجوم
+        try:
+            print("--- المحاولة الأولى: النقر المباشر...")
+            publish_now_button.click()
+            time.sleep(2)
+        except Exception as e1:
+            print(f"--- النقر المباشر فشل: {e1}")
+            try:
+                print("--- المحاولة الثانية: النقر عبر JavaScript...")
+                driver.execute_script("arguments[0].click();", publish_now_button)
+                time.sleep(2)
+            except Exception as e2:
+                print(f"--- نقر JavaScript فشل: {e2}")
+                try:
+                    print("--- المحاولة الثالثة: الضغط على Enter...")
+                    publish_now_button.send_keys(Keys.ENTER)
+                    time.sleep(2)
+                except Exception as e3:
+                    print(f"--- الضغط على Enter فشل: {e3}")
+                    raise Exception("All three click methods failed.")
+
+        print("--- تم إرسال أمر النشر النهائي.")
+        
+        # 4. لقطة شاشة بعد الهجوم
+        time.sleep(15) # انتظار طويل للسماح للصفحة بالتغير
+        driver.save_screenshot("debug_after_final_publish.png")
+        with open("debug_page_source_after_publish.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        print("--- تم التقاط صورة وحفظ المصدر بعد الضغط النهائي.")
+
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 النجاح! تم إرسال أمر النشر بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم إرسال أمر النشر، يرجى التحقق من النتيجة. 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
