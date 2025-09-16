@@ -14,6 +14,7 @@ import re
 RSS_URL = "https://fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 
+# ... (باقي الدوال المساعدة تبقى كما هي) ...
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
     with open(POSTED_LINKS_FILE, "r", encoding='utf-8') as f: return set(line.strip() for line in f)
@@ -46,9 +47,10 @@ def extract_image_url_from_entry(entry):
     match = re.search(r'<img[^>]+src="([^">]+)"', content_html)
     if match: return match.group(1)
     return None
+# ---
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v13.2 (إصلاح نهائي لمعرّفات النشر) ---")
+    print("--- بدء تشغيل الروبوت الناشر v14 (البحث عن النص) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -83,12 +85,12 @@ def main():
         
         wait = WebDriverWait(driver, 30)
         
-        print("--- 4. كتابة العنوان...")
+        print("--- 4. كتابة العنوان والمحتوى...")
+        # (كود كتابة العنوان والمحتوى يبقى كما هو)
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         title_field.send_keys(post_to_publish.title)
         
-        print("--- 5. بناء ولصق المحتوى الكامل...")
         image_url = extract_image_url_from_entry(post_to_publish)
         image_html = f'<img src="{image_url}">' if image_url else ""
         
@@ -109,14 +111,14 @@ def main():
         story_field.send_keys(Keys.CONTROL, 'v')
         time.sleep(5)
 
+        # --- هنا الإصلاحات الجديدة باستخدام XPath ---
         print("--- 6. بدء عملية النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
+        # البحث عن زر يحتوي على النص "Publish"
+        publish_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[text()="Publish"]')))
         publish_button.click()
         print("--- تم الضغط على زر 'Publish'.")
 
-        # --- هنا الإصلاحات الجديدة ---
         print("--- 7. إضافة الوسوم (Tags)...")
-        # المعرّف الجديد لحقل الوسوم يستخدم placeholder
         tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder="Add topics..."]')))
         
         if hasattr(post_to_publish, 'tags'):
@@ -128,8 +130,8 @@ def main():
             print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
 
         print("--- 8. الضغط على زر النشر النهائي...")
-        # المعرّف الجديد لزر النشر النهائي
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publication-publish-button"]')))
+        # البحث عن زر يحتوي على النص "Publish now"
+        publish_now_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(), "Publish now")]')))
         # --- نهاية الإصلاحات ---
         
         publish_now_button.click()
