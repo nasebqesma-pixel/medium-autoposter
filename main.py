@@ -32,7 +32,7 @@ def get_next_post_to_publish():
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v9 (اللمسة الأخيرة) ---")
+    print("--- بدء تشغيل الروبوت الناشر v10 (النهائي) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -42,12 +42,14 @@ def main():
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
 
     if not sid_cookie or not uid_cookie:
-        print("!!! خطأ: لم يتم العثور على الكوكي SID أو UID.")
+        print("!!! خطأ: لم يتم العثور على الكوكيز.")
         return
 
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
-    # ... (باقي الخيارات) ...
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("window-size=1920,1080")
     
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -65,21 +67,26 @@ def main():
         
         wait = WebDriverWait(driver, 30)
         
-        # --- هنا الإصلاح النهائي! ---
-        print("--- 4. البحث عن حقل العنوان الجديد...")
-        # نحن نبحث الآن عن العنصر الذي يحتوي على كلمة "Title" كقيمة افتراضية
+        print("--- 4. كتابة العنوان...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
-        title_field.click() # ننقر عليه لتفعيله
-        title_field.send_keys(post_to_publish.title) # ثم نكتب العنوان
+        title_field.click()
+        title_field.send_keys(post_to_publish.title)
         print("--- تم كتابة العنوان بنجاح!")
-        # --- نهاية الإصلاح ---
         
-        print("--- 5. البحث عن حقل المحتوى...")
+        print("--- 5. كتابة المحتوى...")
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         time.sleep(1)
 
-        content_html = post_to_publish.summary
+        # --- هنا الإصلاح الحاسم! ---
+        # نحن الآن نأخذ المحتوى الكامل من حقل 'content'
+        content_html = ""
+        if 'content' in post_to_publish and post_to_publish.content:
+            content_html = post_to_publish.content[0].value
+        else:
+            # كخطة احتياطية، نستخدم الـ summary
+            content_html = post_to_publish.summary
+        
         driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_html)
         print("--- تم كتابة المحتوى بنجاح!")
 
