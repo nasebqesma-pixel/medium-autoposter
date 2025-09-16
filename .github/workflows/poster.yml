@@ -31,7 +31,7 @@ jobs:
           MEDIUM_UID_COOKIE: ${{ secrets.MEDIUM_UID_COOKIE }}
         run: python main.py
         
-      # --- هذا هو القسم الجديد والمهم ---
+      # --- هذا هو القسم الذي يحل المشكلة ---
       - name: Commit and Push Log File
         run: |
           # تحقق أولاً مما إذا كان ملف السجل قد تم إنشاؤه
