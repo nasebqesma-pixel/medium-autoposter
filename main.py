@@ -34,34 +34,21 @@ def get_next_post_to_publish():
     return None
 
 def extract_image_url_from_entry(entry):
-    """يستخرج رابط الصورة الرئيسية بأفضل طريقة ممكنة."""
-    # الطريقة الأولى والأفضل: البحث في media_content
     if hasattr(entry, 'media_content') and entry.media_content:
         for media in entry.media_content:
-            if 'url' in media and media.get('medium') == 'image':
-                return media['url']
-    
-    # الطريقة الثانية: البحث في enclosure
+            if 'url' in media and media.get('medium') == 'image': return media['url']
     if hasattr(entry, 'enclosures') and entry.enclosures:
         for enclosure in entry.enclosures:
-            if 'href' in enclosure and 'image' in enclosure.get('type', ''):
-                return enclosure.href
-
-    # الطريقة الثالثة (احتياطية): البحث عن أول صورة في المحتوى
+            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure.href
     content_html = ""
-    if 'content' in entry and entry.content:
-        content_html = entry.content[0].value
-    else:
-        content_html = entry.summary
-    
+    if 'content' in entry and entry.content: content_html = entry.content[0].value
+    else: content_html = entry.summary
     match = re.search(r'<img[^>]+src="([^">]+)"', content_html)
-    if match:
-        return match.group(1)
-        
+    if match: return match.group(1)
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الكامل v12 (مع الصور والروابط) ---")
+    print("--- بدء تشغيل الروبوت الكامل v12.1 (إصلاح برمجي) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -102,30 +89,55 @@ def main():
         title_field.send_keys(post_to_publish.title)
         print("--- تم كتابة العنوان بنجاح!")
         
-        print("--- 5. بناء المحتوى الكامل (صورة + نص + رابط)...")
-        
-        # استخراج الصورة
+        print("--- 5. بناء المحتوى الكامل...")
         image_url = extract_image_url_from_entry(post_to_publish)
         image_html = f'<img src="{image_url}"><br>' if image_url else ""
         
-        # استخراج النص
         text_content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
             text_content_html = post_to_publish.content[0].value
         else:
             text_content_html = post_to_publish.summary
 
-        # استخراج الرابط الأصلي
         original_link = post_to_publish.link
         link_html = f'<br><p><em>Originally published at <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
 
-        # تجميع كل شيء
         full_html_content = image_html + text_content_html + link_html
 
-        print("--- 6. محاكاة عملية النسخ واللصق للمحتوى الكامل...")
+        print("--- 6. محاكاة عملية النسخ واللصق...")
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
 
-        driver.execute_script("""
+        # --- هنا الإصلاح ---
+        # قمنا بوضع النص متعدد الأسطر في متغير أولاً
+        js_script = """
             const html = arguments[0];
-            const blob = new Blob([h
+            const blob = new Blob([html], { type: 'text/html' });
+            const item = new ClipboardItem({ 'text/html': blob });
+            navigator.clipboard.write([item]);
+        """
+        driver.execute_script(js_script, full_html_content)
+        # --- نهاية الإصلاح ---
+        
+        print("--- تم وضع المحتوى الكامل في الحافظة.")
+
+        story_field.send_keys(Keys.CONTROL, 'v')
+        print("--- تم لصق المحتوى الكامل بنجاح!")
+
+        print("--- 7. انتظار الحفظ...")
+        time.sleep(15)
+
+        add_posted_link(post_to_publish.link)
+        print(">>> 🎉🎉🎉 النجاح النهائي! تم حفظ المقال الكامل كمسودة! 🎉🎉🎉")
+
+    except Exception as e:
+        print(f"!!! حدث خطأ فادح: {e}")
+        driver.save_screenshot("error_screenshot.png")
+        with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
+        raise e
+    finally:
+        driver.quit()
+        print("--- تم إغلاق الروبوت ---")
+
+if __name__ == "__main__":
+    main()
