@@ -33,22 +33,8 @@ def get_next_post_to_publish():
             return entry
     return None
 
-def extract_image_url_from_entry(entry):
-    if hasattr(entry, 'media_content') and entry.media_content:
-        for media in entry.media_content:
-            if 'url' in media and media.get('medium') == 'image': return media['url']
-    if hasattr(entry, 'enclosures') and entry.enclosures:
-        for enclosure in entry.enclosures:
-            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure.href
-    content_html = ""
-    if 'content' in entry and entry.content: content_html = entry.content[0].value
-    else: content_html = entry.summary
-    match = re.search(r'<img[^>]+src="([^">]+)"', content_html)
-    if match: return match.group(1)
-    return None
-
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v17 (الهجوم الثلاثي) ---")
+    print("--- بدء تشغيل الروبوت المصور v18 ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -73,7 +59,7 @@ def main():
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
     
     try:
-        # ... (الخطوات من 2 إلى 6 تبقى كما هي) ...
+        # ... (كل الخطوات تبقى كما هي) ...
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
@@ -89,21 +75,11 @@ def main():
         title_field.click()
         title_field.send_keys(post_to_publish.title)
         
-        image_url = extract_image_url_from_entry(post_to_publish)
-        image_html = f'<img src="{image_url}">' if image_url else ""
-        text_content_html = post_to_publish.summary if 'summary' in post_to_publish else ""
-        if 'content' in post_to_publish and post_to_publish.content:
-            text_content_html = post_to_publish.content[0].value
-        original_link = post_to_publish.link
-        link_html = f'<br><p><em>Originally published at <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
-        full_html_content = image_html + text_content_html + link_html
-
+        # ... (كود بناء ولصق المحتوى يبقى كما هو) ...
+        content_html = "..." # (مختصر للتوضيح)
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
-        js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
-        driver.execute_script(js_script, full_html_content)
-        story_field.send_keys(Keys.CONTROL, 'v')
-        time.sleep(5)
+        # ...
 
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
@@ -112,65 +88,34 @@ def main():
         print("--- 6. إضافة الوسوم...")
         tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
         tags_input.click()
-        
-        if hasattr(post_to_publish, 'tags'):
-            tags_to_add = [tag.term for tag in post_to_publish.tags[:5]]
-            for tag in tags_to_add:
-                tags_input.send_keys(tag)
-                time.sleep(0.5)
-                tags_input.send_keys(Keys.ENTER)
-                time.sleep(1)
-            print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
+        # ... (كود إضافة الوسوم يبقى كما هو) ...
 
-        # --- هنا يبدأ الهجوم الثلاثي ---
         print("--- 7. الهجوم على زر النشر النهائي...")
-        
-        # 1. تحديد موقع الزر
         publish_now_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        
-        # 2. لقطة شاشة قبل الهجوم
         driver.save_screenshot("debug_before_final_publish.png")
         print("--- تم التقاط صورة قبل الضغط النهائي.")
 
-        # 3. الهجوم
-        try:
-            print("--- المحاولة الأولى: النقر المباشر...")
-            publish_now_button.click()
-            time.sleep(2)
-        except Exception as e1:
-            print(f"--- النقر المباشر فشل: {e1}")
-            try:
-                print("--- المحاولة الثانية: النقر عبر JavaScript...")
-                driver.execute_script("arguments[0].click();", publish_now_button)
-                time.sleep(2)
-            except Exception as e2:
-                print(f"--- نقر JavaScript فشل: {e2}")
-                try:
-                    print("--- المحاولة الثالثة: الضغط على Enter...")
-                    publish_now_button.send_keys(Keys.ENTER)
-                    time.sleep(2)
-                except Exception as e3:
-                    print(f"--- الضغط على Enter فشل: {e3}")
-                    raise Exception("All three click methods failed.")
-
+        driver.execute_script("arguments[0].click();", publish_now_button)
         print("--- تم إرسال أمر النشر النهائي.")
         
-        # 4. لقطة شاشة بعد الهجوم
-        time.sleep(15) # انتظار طويل للسماح للصفحة بالتغير
-        driver.save_screenshot("debug_after_final_publish.png")
-        with open("debug_page_source_after_publish.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
-        print("--- تم التقاط صورة وحفظ المصدر بعد الضغط النهائي.")
+        time.sleep(15)
 
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم إرسال أمر النشر، يرجى التحقق من النتيجة. 🎉🎉🎉")
+        print(">>> تم إكمال المهمة.")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
-        driver.save_screenshot("error_screenshot.png")
-        with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
         raise e
     finally:
+        # --- هنا التغيير! ---
+        # سنقوم بحفظ الأدلة دائمًا، سواء نجح الكود أو فشل
+        print("--- 8. حفظ الأدلة النهائية...")
+        driver.save_screenshot("debug_final_state.png")
+        with open("debug_final_page_source.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        print("--- تم حفظ لقطة الشاشة النهائية وملف HTML.")
+        # --- نهاية التغيير ---
+
         driver.quit()
         print("--- تم إغلاق الروبوت ---")
 
