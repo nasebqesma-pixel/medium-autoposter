@@ -32,7 +32,7 @@ def get_next_post_to_publish():
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الشبح v8 (بطاقة هوية مزدوجة) ---")
+    print("--- بدء تشغيل الروبوت الناشر v9 (اللمسة الأخيرة) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -42,13 +42,12 @@ def main():
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
 
     if not sid_cookie or not uid_cookie:
-        print("!!! خطأ: لم يتم العثور على الكوكي SID أو UID في خزنة GitHub.")
+        print("!!! خطأ: لم يتم العثور على الكوكي SID أو UID.")
         return
 
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    # ... (باقي الخيارات كما هي) ...
+    # ... (باقي الخيارات) ...
     
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -56,7 +55,7 @@ def main():
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
     
     try:
-        print("--- 2. إعداد الجلسة باستخدام بطاقة هوية مزدوجة...")
+        print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
         driver.add_cookie({"name": "uid", "value": uid_cookie, "domain": ".medium.com"})
@@ -66,18 +65,24 @@ def main():
         
         wait = WebDriverWait(driver, 30)
         
-        print("--- 4. البحث عن حقل العنوان...")
-        title_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'textarea[aria-label="Title"]')))
-        title_field.send_keys(post_to_publish.title)
+        # --- هنا الإصلاح النهائي! ---
+        print("--- 4. البحث عن حقل العنوان الجديد...")
+        # نحن نبحث الآن عن العنصر الذي يحتوي على كلمة "Title" كقيمة افتراضية
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
+        title_field.click() # ننقر عليه لتفعيله
+        title_field.send_keys(post_to_publish.title) # ثم نكتب العنوان
+        print("--- تم كتابة العنوان بنجاح!")
+        # --- نهاية الإصلاح ---
         
         print("--- 5. البحث عن حقل المحتوى...")
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')))
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         time.sleep(1)
 
         content_html = post_to_publish.summary
         driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_html)
-        
+        print("--- تم كتابة المحتوى بنجاح!")
+
         print("--- 6. انتظار الحفظ...")
         time.sleep(10)
 
