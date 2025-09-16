@@ -48,7 +48,7 @@ def extract_image_url_from_entry(entry):
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v14 (الموثوق) ---")
+    print("--- بدء تشغيل الروبوت الناشر v15 (الصبور) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -83,21 +83,16 @@ def main():
         
         wait = WebDriverWait(driver, 30)
         
-        print("--- 4. كتابة العنوان...")
+        print("--- 4. كتابة العنوان والمحتوى...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         title_field.send_keys(post_to_publish.title)
         
-        print("--- 5. بناء ولصق المحتوى الكامل...")
         image_url = extract_image_url_from_entry(post_to_publish)
         image_html = f'<img src="{image_url}">' if image_url else ""
-        
-        text_content_html = ""
+        text_content_html = post_to_publish.summary if 'summary' in post_to_publish else ""
         if 'content' in post_to_publish and post_to_publish.content:
             text_content_html = post_to_publish.content[0].value
-        else:
-            text_content_html = post_to_publish.summary
-
         original_link = post_to_publish.link
         link_html = f'<br><p><em>Originally published at <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
         full_html_content = image_html + text_content_html + link_html
@@ -109,12 +104,11 @@ def main():
         story_field.send_keys(Keys.CONTROL, 'v')
         time.sleep(5)
 
-        print("--- 6. بدء عملية النشر...")
+        print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
-        print("--- تم الضغط على زر 'Publish'.")
 
-        print("--- 7. إضافة الوسوم (Tags)...")
+        print("--- 6. إضافة الوسوم...")
         tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
         tags_input.click()
         
@@ -122,26 +116,28 @@ def main():
             tags_to_add = [tag.term for tag in post_to_publish.tags[:5]]
             for tag in tags_to_add:
                 tags_input.send_keys(tag)
-                time.sleep(0.5) # انتظار بسيط جدا
+                time.sleep(0.5)
                 tags_input.send_keys(Keys.ENTER)
                 time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
 
-        print("--- 8. الضغط على زر النشر النهائي...")
-        
-        # --- هنا الإصلاح! ---
-        # 1. نضيف انتظارًا بسيطًا ولكنه مهم جدًا
-        time.sleep(2) 
-        # 2. نستخدم JavaScript للنقر لضمان الموثوقية
+        print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         driver.execute_script("arguments[0].click();", publish_now_button)
+        
+        # --- هنا الإصلاح الحاسم! ---
+        print("--- 8. انتظار تأكيد النشر...")
+        # سننتظر حتى 40 ثانية حتى تظهر رسالة "Story published."
+        # أو أي عنصر آخر يؤكد النجاح (مثل زر "View story")
+        wait_long = WebDriverWait(driver, 40)
+        wait_long.until(
+            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Story published')]"))
+        )
         # --- نهاية الإصلاح ---
         
-        print("--- تم إرسال أمر النشر النهائي.")
-        time.sleep(10) # انتظار أخير للتأكد من اكتمال العملية
-
+        print("--- تم تأكيد النشر من قبل Medium.")
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 النجاح الكامل! تم نشر المقال بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 النجاح الحقيقي! تم نشر المقال وتأكيد ذلك! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
