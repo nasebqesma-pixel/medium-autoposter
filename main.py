@@ -3,6 +3,7 @@ import os
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys # لاستخدام Ctrl+V
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
@@ -32,7 +33,7 @@ def get_next_post_to_publish():
     return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v10 (النهائي) ---")
+    print("--- بدء تشغيل الروبوت الناسخ v11 (الحل النهائي) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -73,28 +74,38 @@ def main():
         title_field.send_keys(post_to_publish.title)
         print("--- تم كتابة العنوان بنجاح!")
         
-        print("--- 5. كتابة المحتوى...")
+        print("--- 5. محاكاة عملية النسخ واللصق للمحتوى الكامل...")
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field.click()
-        time.sleep(1)
+        story_field.click() # تفعيل حقل الكتابة
 
-        # --- هنا الإصلاح الحاسم! ---
-        # نحن الآن نأخذ المحتوى الكامل من حقل 'content'
+        # --- هنا السحر الحقيقي! ---
+        # 1. نحصل على المحتوى الكامل (مع الصور وكل شيء)
         content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
             content_html = post_to_publish.content[0].value
         else:
-            # كخطة احتياطية، نستخدم الـ summary
             content_html = post_to_publish.summary
         
-        driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_html)
-        print("--- تم كتابة المحتوى بنجاح!")
+        # 2. نستخدم JavaScript لوضع هذا المحتوى في حافظة المتصفح
+        # هذا الأمر يخبر المتصفح: "لقد قام المستخدم بنسخ هذا الـ HTML الغني"
+        driver.execute_script("""
+            const html = arguments[0];
+            const blob = new Blob([html], { type: 'text/html' });
+            const item = new ClipboardItem({ 'text/html': blob });
+            navigator.clipboard.write([item]);
+        """, content_html)
+        print("--- تم وضع المحتوى الكامل في الحافظة.")
+
+        # 3. نقوم بمحاكاة الضغط على Ctrl+V للصق المحتوى
+        story_field.send_keys(Keys.CONTROL, 'v')
+        print("--- تم لصق المحتوى بنجاح!")
+        # --- انتهى السحر ---
 
         print("--- 6. انتظار الحفظ...")
-        time.sleep(10)
+        time.sleep(15) # نعطي وقتاً أطول لمعالجة المحتوى الغني
 
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 النجاح! تم حفظ المقال كمسودة بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 النجاح النهائي! تم حفظ المقال الكامل كمسودة! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
