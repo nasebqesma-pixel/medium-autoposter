@@ -3,12 +3,13 @@ import os
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys # لاستخدام Ctrl+V
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
+import re
 
 RSS_URL = "https://fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -32,8 +33,35 @@ def get_next_post_to_publish():
             return entry
     return None
 
+def extract_image_url_from_entry(entry):
+    """يستخرج رابط الصورة الرئيسية بأفضل طريقة ممكنة."""
+    # الطريقة الأولى والأفضل: البحث في media_content
+    if hasattr(entry, 'media_content') and entry.media_content:
+        for media in entry.media_content:
+            if 'url' in media and media.get('medium') == 'image':
+                return media['url']
+    
+    # الطريقة الثانية: البحث في enclosure
+    if hasattr(entry, 'enclosures') and entry.enclosures:
+        for enclosure in entry.enclosures:
+            if 'href' in enclosure and 'image' in enclosure.get('type', ''):
+                return enclosure.href
+
+    # الطريقة الثالثة (احتياطية): البحث عن أول صورة في المحتوى
+    content_html = ""
+    if 'content' in entry and entry.content:
+        content_html = entry.content[0].value
+    else:
+        content_html = entry.summary
+    
+    match = re.search(r'<img[^>]+src="([^">]+)"', content_html)
+    if match:
+        return match.group(1)
+        
+    return None
+
 def main():
-    print("--- بدء تشغيل الروبوت الناسخ v11 (الحل النهائي) ---")
+    print("--- بدء تشغيل الروبوت الكامل v12 (مع الصور والروابط) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -74,47 +102,30 @@ def main():
         title_field.send_keys(post_to_publish.title)
         print("--- تم كتابة العنوان بنجاح!")
         
-        print("--- 5. محاكاة عملية النسخ واللصق للمحتوى الكامل...")
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field.click() # تفعيل حقل الكتابة
-
-        # --- هنا السحر الحقيقي! ---
-        # 1. نحصل على المحتوى الكامل (مع الصور وكل شيء)
-        content_html = ""
-        if 'content' in post_to_publish and post_to_publish.content:
-            content_html = post_to_publish.content[0].value
-        else:
-            content_html = post_to_publish.summary
+        print("--- 5. بناء المحتوى الكامل (صورة + نص + رابط)...")
         
-        # 2. نستخدم JavaScript لوضع هذا المحتوى في حافظة المتصفح
-        # هذا الأمر يخبر المتصفح: "لقد قام المستخدم بنسخ هذا الـ HTML الغني"
+        # استخراج الصورة
+        image_url = extract_image_url_from_entry(post_to_publish)
+        image_html = f'<img src="{image_url}"><br>' if image_url else ""
+        
+        # استخراج النص
+        text_content_html = ""
+        if 'content' in post_to_publish and post_to_publish.content:
+            text_content_html = post_to_publish.content[0].value
+        else:
+            text_content_html = post_to_publish.summary
+
+        # استخراج الرابط الأصلي
+        original_link = post_to_publish.link
+        link_html = f'<br><p><em>Originally published at <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
+
+        # تجميع كل شيء
+        full_html_content = image_html + text_content_html + link_html
+
+        print("--- 6. محاكاة عملية النسخ واللصق للمحتوى الكامل...")
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        story_field.click()
+
         driver.execute_script("""
             const html = arguments[0];
-            const blob = new Blob([html], { type: 'text/html' });
-            const item = new ClipboardItem({ 'text/html': blob });
-            navigator.clipboard.write([item]);
-        """, content_html)
-        print("--- تم وضع المحتوى الكامل في الحافظة.")
-
-        # 3. نقوم بمحاكاة الضغط على Ctrl+V للصق المحتوى
-        story_field.send_keys(Keys.CONTROL, 'v')
-        print("--- تم لصق المحتوى بنجاح!")
-        # --- انتهى السحر ---
-
-        print("--- 6. انتظار الحفظ...")
-        time.sleep(15) # نعطي وقتاً أطول لمعالجة المحتوى الغني
-
-        add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 النجاح النهائي! تم حفظ المقال الكامل كمسودة! 🎉🎉🎉")
-
-    except Exception as e:
-        print(f"!!! حدث خطأ فادح: {e}")
-        driver.save_screenshot("error_screenshot.png")
-        with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
-        raise e
-    finally:
-        driver.quit()
-        print("--- تم إغلاق الروبوت ---")
-
-if __name__ == "__main__":
-    main()
+            const blob = new Blob([h
