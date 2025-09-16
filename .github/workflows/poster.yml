@@ -5,10 +5,9 @@ on:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
-# --- هذا هو القسم الجديد الذي يمنح الإذن ---
 permissions:
   contents: write
-# --- نهاية القسم الجديد ---
+  actions: read # أضفنا هذا الإذن
 
 jobs:
   build:
@@ -17,33 +16,27 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v3
-
       - name: Set up Chrome
         uses: browser-actions/setup-chrome@v1
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
       - name: Install Python Dependencies
         run: pip install selenium feedparser webdriver-manager selenium-stealth
-
       - name: Run Python Script
         id: script
         env:
           MEDIUM_SID_COOKIE: ${{ secrets.MEDIUM_SID_COOKIE }}
           MEDIUM_UID_COOKIE: ${{ secrets.MEDIUM_UID_COOKIE }}
+        # سنضيف continue-on-error حتى تعمل الخطوة التالية دائمًا
+        continue-on-error: true
         run: python main.py
         
-      - name: Commit and Push Log File
-        run: |
-          if [ -f posted_links.txt ]; then
-            git config --global user.name 'GitHub Actions Bot'
-            git config --global user.email 'actions-bot@github.com'
-            git add posted_links.txt
-            git diff --staged --quiet || git commit -m "Update posted links log"
-            git push
-          else
-            echo "Log file not found, nothing to commit."
-          fi
+      - name: Upload Debug Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            *.png
+            *.html
