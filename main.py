@@ -10,13 +10,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 import re
-from bs4 import BeautifulSoup # --- أضفنا مكتبة جديدة لتحليل المحتوى ---
+from bs4 import BeautifulSoup
 
 # --- medium المكتبة الجديدة لمحاكاة الإنسان في النشر على ---
 # --- برمجة ahmed si ---
 
-# ---   غيير فقط اسم موقع بدون تغيير feed       ---
-RSS_URL = "https://Fastyummyfood.com/feed"
+RSS_URL = "https://Fastyummyfood.com/feed" # تم التحديث حسب سجلات الخطأ
 POSTED_LINKS_FILE = "posted_links.txt"
 
 def get_posted_links():
@@ -52,32 +51,41 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-# --- دالة جديدة ومحسّنة لاستخلاص جزء من المقال ---
-def extract_intro_from_html(html_content, num_paragraphs=3):
+# --- [التحسين] دالة جديدة وأكثر قوة لاستخلاص المقدمة ---
+def extract_intro_from_html(html_content, num_elements=3):
     """
-    تستخدم هذه الدالة BeautifulSoup لاستخلاص أول عدد معين من الفقرات.
+    تستخلص هذه الدالة عددًا معينًا من العناصر (فقرات أو حاويات نصية)
+    لتكون أكثر مرونة مع مختلف تنسيقات RSS.
     """
     if not html_content:
         return ""
     
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # ابحث عن كل الفقرات النصية <p>
-    paragraphs = soup.find_all('p')
+    # ابحث عن الفقرات أو الحاويات النصية الرئيسية (p أو div)
+    # هذا يجعلها أكثر قوة إذا كان المحتوى غير منظم في فقرات <p>
+    elements = soup.find_all(['p', 'div'])
     
     intro_html = ""
     count = 0
-    for p in paragraphs:
-        # تجاهل الفقرات الفارغة أو التي تحتوي على صور فقط
-        if p.get_text(strip=True):
-            intro_html += str(p)
+    
+    for el in elements:
+        # تجاهل العناصر الفارغة أو التي لا تحتوي على نص مباشر
+        if el.get_text(strip=True):
+            # تجاهل الحاويات الكبيرة التي تحتوي على عناصر أخرى قمنا بمعالجتها بالفعل
+            if el.find(['p', 'div']):
+                continue
+            intro_html += str(el)
             count += 1
-            if count >= num_paragraphs:
+            if count >= num_elements:
                 break
                 
-    # إذا لم يتم العثور على أي فقرات، ارجع إلى المحتوى الأصلي كخطة بديلة
+    # خطة بديلة: إذا لم يتم العثور على أي عناصر، ارجع للملخص الأصلي
+    # وقم بتنظيفه من أي وسوم HTML متبقية
     if not intro_html:
-        return html_content
+        # استخدم الملخص المتاح ولكن نظفه
+        soup_fallback = BeautifulSoup(html_content, 'html.parser')
+        return soup_fallback.get_text(separator='\n\n', strip=True)
 
     return intro_html
 
@@ -97,7 +105,7 @@ def main():
         return
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless") # يمكنك تعطيل هذا السطر مؤقتًا لرؤية ما يفعله المتصفح
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
@@ -126,36 +134,38 @@ def main():
         image_url = extract_image_url_from_entry(post_to_publish)
         image_html = f'<img src="{image_url}">' if image_url else ""
         
-        # --- التعديل الرئيسي هنا ---
         raw_content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
             raw_content_html = post_to_publish.content[0].value
         else:
             raw_content_html = post_to_publish.summary
 
-        # استدعاء الدالة الجديدة للحصول على المقدمة (مثلاً، أول 3 فقرات)
-        intro_content = extract_intro_from_html(raw_content_html, num_paragraphs=3)
-        print("--- تم استخلاص مقدمة المقال بنجاح ---")
+        # استدعاء الدالة المحسّنة للحصول على المقدمة (مثلاً، أول 3 عناصر نصية)
+        intro_content = extract_intro_from_html(raw_content_html, num_elements=3)
+        
+        # --- [التشخيص] طباعة المحتوى قبل وبعد المعالجة ---
+        print("="*50)
+        print("--- [تشخيص] محتوى RSS الخام المستلم ---")
+        print(raw_content_html)
+        print("--- [تشخيص] المحتوى بعد المعالجة (المقدمة) ---")
+        print(intro_content)
+        print("="*50)
 
         original_link = post_to_publish.link
-        # --- يمكنك تخصيص هذه الرسالة ---
         call_to_action = "Love this sneak peek? 🌟 **Continue reading the full recipe, including step-by-step photos and tips, on our main blog.**"
         link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Click here to visit Fastyummyfood.com</a>.</em></p>'
         
-        # تجميع المحتوى النهائي للنشر
         full_html_content = image_html + intro_content + link_html
 
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         
-        # استخدام JavaScript للصق المحتوى بتنسيقه الكامل
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
         time.sleep(5)
 
         print("--- 5. بدء عملية النشر...")
-        # (بقية الكود يبقى كما هو)
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
 
