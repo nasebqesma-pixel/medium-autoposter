@@ -25,9 +25,8 @@ jobs:
         with:
           python-version: '3.10'
 
-- name: Install Python Dependencies
+      - name: Install Python Dependencies
         run: pip install selenium feedparser webdriver-manager selenium-stealth beautifulsoup4
-
 
       - name: Run Python Script
         id: script
