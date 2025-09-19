@@ -1,3 +1,5 @@
+# main.py (النسخة المعدلة والنهائية)
+
 import feedparser
 import os
 import time
@@ -11,9 +13,10 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si ---
+# --- برمجة ahmed si (تم التطوير بواسطة مساعد Gemini الخبير) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -58,6 +61,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
+    # ملاحظة: تم الإبقاء على تعليمات Gemini كما هي لأنها تنتج الـ Placeholders بشكل صحيح
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO and engagement.
@@ -82,19 +86,74 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         response.raise_for_status()
         response_json = response.json()
         raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group(0))
-            print("--- ✅ تم استلام مقال كامل من Gemini.")
-            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
+        # تنظيف الرد للعثور على JSON صحيح
+        json_str_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
+        if json_str_match:
+            json_str = json_str_match.group(1)
         else:
-            raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
+            json_str = raw_text # fallback
+        
+        result = json.loads(json_str)
+        print("--- ✅ تم استلام مقال كامل من Gemini.")
+        return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
 
+# --- الدالة الجديدة والمحورية لحل مشكلة الصور ---
+def insert_images_natively(driver, wait, image_url, alt_texts):
+    print("--- 🏞️ بدء عملية إدراج الصور بالطريقة الموثوقة ---")
+    placeholders = ["<!-- IMAGE 1 PLACEHOLDER -->", "<!-- IMAGE 2 PLACEHOLDER -->"]
+    
+    for i, placeholder_text in enumerate(placeholders):
+        try:
+            # استخدام XPath للبحث عن العنصر الذي يحتوي على نص الـ Placeholder
+            # هذا أكثر استقراراً من البحث عن النص فقط
+            placeholder_element = wait.until(
+                EC.presence_of_element_located((By.XPATH, f"//p[contains(text(), 'IMAGE {i+1} PLACEHOLDER')]"))
+            )
+            print(f"--- تم العثور على placeholder #{i+1}")
+
+            # ننزل إلى العنصر ليكون مرئياً ونضغط عليه
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", placeholder_element)
+            time.sleep(1)
+            placeholder_element.click()
+
+            # نمسح نص الـ Placeholder ونضغط Enter لإنشاء سطر جديد
+            placeholder_element.clear()
+            time.sleep(0.5)
+            ActionChains(driver).send_keys(Keys.ENTER).perform()
+            time.sleep(1)
+
+            # الآن نحن على سطر فارغ وجاهز. نظهر زر الإضافة (+)
+            plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="open-embed-bar"]')))
+            plus_button.click()
+            time.sleep(1)
+
+            # نختار أيقونة الكاميرا التي تفتح خيار "Add an image"
+            camera_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="embed-image"]')))
+            camera_button.click()
+            time.sleep(1)
+
+            # نلصق رابط الصورة في الحقل المخصص
+            url_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder="Paste an image link…"]')))
+            url_input.send_keys(image_url)
+            url_input.send_keys(Keys.ENTER)
+            
+            # ننتظر حتى يقوم Medium بمعالجة الصورة وظهورها (العلامة هي وجود div.graf-image)
+            print(f"--- جاري معالجة الصورة #{i+1}...")
+            wait.until(EC.presence_of_element_located((By.XPATH, f"(//div[contains(@class, 'graf--figure') ])[{i+1}]")))
+            time.sleep(5) # انتظار إضافي لضمان اكتمال التحميل والعرض
+            print(f"--- ✅ تمت معالجة الصورة #{i+1} بنجاح.")
+
+        except Exception as e:
+            print(f"!!! حدث خطأ أثناء إدراج الصورة #{i+1}: {e}")
+            # في حال الفشل، نطبع لقطة شاشة للمساعدة في التشخيص
+            driver.save_screenshot(f"error_image_{i+1}.png")
+            continue
+
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v27 (الحل الموثوق) ---")
+    print("--- بدء تشغيل الروبوت الناشر v28 (الحل الموثوق للصور) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -106,7 +165,7 @@ def main():
     if image_url:
         print(f"--- 🖼️ تم العثور على رابط الصورة: {image_url}")
     else:
-        print("--- ⚠️ لم يتم العثور على رابط صورة في RSS.")
+        print("--- ⚠️ لم يتم العثور على رابط صورة في RSS. سيتم النشر بدون صور.")
     
     original_content_html = post_to_publish.summary
     if 'content' in post_to_publish and post_to_publish.content:
@@ -126,17 +185,8 @@ def main():
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
     
-    # --- بناء المحتوى النهائي ككتلة HTML واحدة (العودة للطريقة الموثوقة) ---
+    # المحتوى الآن لا يحتوي على وسوم <img>، فقط الـ placeholders
     full_html_content = generated_html_content
-    if image_url:
-        alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-        alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
-        
-        image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
-        image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
-        
-        full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image1_html)
-        full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image2_html)
 
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
@@ -166,29 +216,38 @@ def main():
 
         wait = WebDriverWait(driver, 30)
 
-        print("--- 4. كتابة العنوان ولصق المحتوى الكامل...")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
-        title_field.click()
+        print("--- 4. كتابة العنوان ولصق المحتوى (بدون الصور)...")
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'textarea[placeholder="Title"]')))
         title_field.send_keys(final_title)
 
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field.click()
+        # الضغط على حقل المحتوى للبدء
+        story_field_placeholder = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder-string="Tell your story…"]')))
+        story_field_placeholder.click()
         
-        # استخدام طريقة اللصق الموثوقة من السكريبت الأصلي
+        # استخدام طريقة اللصق الموثوقة
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
-        story_field.send_keys(Keys.CONTROL, 'v')
+        
+        # نرسل أمر اللصق إلى العنصر النشط حالياً في الصفحة
+        ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+
         time.sleep(5)
+        print("--- تم لصق المحتوى النصي بنجاح.")
+
+        # --- الخطوة الجديدة والحاسمة: إدراج الصور بالطريقة الصحيحة ---
+        if image_url:
+            insert_images_natively(driver, wait, image_url, ai_alt_texts)
 
         print("--- 5. بدء عملية النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
+        publish_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Publish']")))
         publish_button.click()
         
         print("--- 6. إضافة الوسوم...")
+        # استخدام محدد أكثر دقة
+        tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.tags-input input')))
+        
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
-            tags_input.click()
             for tag in final_tags:
                 tags_input.send_keys(tag)
                 time.sleep(0.5)
@@ -199,14 +258,14 @@ def main():
             print("--- لا توجد وسوم لإضافتها.")
             
         print("--- 7. إرسال أمر النشر النهائي...")
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
+        publish_now_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Publish now']")))
         time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
         
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح مع الصور! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
