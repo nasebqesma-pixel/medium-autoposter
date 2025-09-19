@@ -1,4 +1,4 @@
-# main.py (النسخة المعدلة والنهائية)
+# main.py (النسخة v29 - تم إصلاح محددات العناصر)
 
 import feedparser
 import os
@@ -61,7 +61,6 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
-    # ملاحظة: تم الإبقاء على تعليمات Gemini كما هي لأنها تنتج الـ Placeholders بشكل صحيح
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO and engagement.
@@ -86,12 +85,11 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         response.raise_for_status()
         response_json = response.json()
         raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
-        # تنظيف الرد للعثور على JSON صحيح
         json_str_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_str_match:
             json_str = json_str_match.group(1)
         else:
-            json_str = raw_text # fallback
+            json_str = re.search(r'\{.*\}', raw_text, re.DOTALL).group(0)
         
         result = json.loads(json_str)
         print("--- ✅ تم استلام مقال كامل من Gemini.")
@@ -100,60 +98,46 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
 
-# --- الدالة الجديدة والمحورية لحل مشكلة الصور ---
 def insert_images_natively(driver, wait, image_url, alt_texts):
     print("--- 🏞️ بدء عملية إدراج الصور بالطريقة الموثوقة ---")
     placeholders = ["<!-- IMAGE 1 PLACEHOLDER -->", "<!-- IMAGE 2 PLACEHOLDER -->"]
     
     for i, placeholder_text in enumerate(placeholders):
         try:
-            # استخدام XPath للبحث عن العنصر الذي يحتوي على نص الـ Placeholder
-            # هذا أكثر استقراراً من البحث عن النص فقط
             placeholder_element = wait.until(
                 EC.presence_of_element_located((By.XPATH, f"//p[contains(text(), 'IMAGE {i+1} PLACEHOLDER')]"))
             )
             print(f"--- تم العثور على placeholder #{i+1}")
-
-            # ننزل إلى العنصر ليكون مرئياً ونضغط عليه
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", placeholder_element)
             time.sleep(1)
             placeholder_element.click()
-
-            # نمسح نص الـ Placeholder ونضغط Enter لإنشاء سطر جديد
             placeholder_element.clear()
             time.sleep(0.5)
             ActionChains(driver).send_keys(Keys.ENTER).perform()
             time.sleep(1)
 
-            # الآن نحن على سطر فارغ وجاهز. نظهر زر الإضافة (+)
             plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="open-embed-bar"]')))
             plus_button.click()
             time.sleep(1)
-
-            # نختار أيقونة الكاميرا التي تفتح خيار "Add an image"
             camera_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="embed-image"]')))
             camera_button.click()
             time.sleep(1)
 
-            # نلصق رابط الصورة في الحقل المخصص
             url_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder="Paste an image link…"]')))
             url_input.send_keys(image_url)
             url_input.send_keys(Keys.ENTER)
             
-            # ننتظر حتى يقوم Medium بمعالجة الصورة وظهورها (العلامة هي وجود div.graf-image)
             print(f"--- جاري معالجة الصورة #{i+1}...")
             wait.until(EC.presence_of_element_located((By.XPATH, f"(//div[contains(@class, 'graf--figure') ])[{i+1}]")))
-            time.sleep(5) # انتظار إضافي لضمان اكتمال التحميل والعرض
+            time.sleep(5)
             print(f"--- ✅ تمت معالجة الصورة #{i+1} بنجاح.")
-
         except Exception as e:
             print(f"!!! حدث خطأ أثناء إدراج الصورة #{i+1}: {e}")
-            # في حال الفشل، نطبع لقطة شاشة للمساعدة في التشخيص
             driver.save_screenshot(f"error_image_{i+1}.png")
             continue
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v28 (الحل الموثوق للصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v29 (تم إصلاح المحددات) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -185,7 +169,6 @@ def main():
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
     
-    # المحتوى الآن لا يحتوي على وسوم <img>، فقط الـ placeholders
     full_html_content = generated_html_content
 
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
@@ -217,34 +200,32 @@ def main():
         wait = WebDriverWait(driver, 30)
 
         print("--- 4. كتابة العنوان ولصق المحتوى (بدون الصور)...")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'textarea[placeholder="Title"]')))
+        # ---== الإصلاح الرئيسي هنا: العودة إلى المحددات المستقرة الأصلية ==---
+        # المحدد 'data-testid' أكثر استقرارًا من 'placeholder'
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
+        title_field.click() # النقر ضروري لتنشيط الحقل
         title_field.send_keys(final_title)
 
-        # الضغط على حقل المحتوى للبدء
-        story_field_placeholder = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder-string="Tell your story…"]')))
-        story_field_placeholder.click()
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        story_field.click() # النقر ضروري لتنشيط الحقل
         
-        # استخدام طريقة اللصق الموثوقة
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
         
-        # نرسل أمر اللصق إلى العنصر النشط حالياً في الصفحة
         ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-
         time.sleep(5)
         print("--- تم لصق المحتوى النصي بنجاح.")
 
-        # --- الخطوة الجديدة والحاسمة: إدراج الصور بالطريقة الصحيحة ---
         if image_url:
             insert_images_natively(driver, wait, image_url, ai_alt_texts)
 
         print("--- 5. بدء عملية النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Publish']")))
+        # ---== الإصلاح: استخدام محدد 'data-action' المستقر لزر النشر ==---
+        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
         
         print("--- 6. إضافة الوسوم...")
-        # استخدام محدد أكثر دقة
-        tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.tags-input input')))
+        tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"] input')))
         
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
@@ -258,7 +239,8 @@ def main():
             print("--- لا توجد وسوم لإضافتها.")
             
         print("--- 7. إرسال أمر النشر النهائي...")
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Publish now']")))
+        # ---== الإصلاح: استخدام محدد 'data-testid' المستقر لزر التأكيد ==---
+        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
         
