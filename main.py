@@ -1,4 +1,4 @@
-# main.py (v31 - الحل النهائي باستخدام العنصر النشط)
+# main.py (v32 - الحل النهائي بدمج الكتل)
 
 import feedparser
 import os
@@ -21,6 +21,7 @@ RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# ... (جميع الدوال المساعدة تبقى كما هي)
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
     with open(POSTED_LINKS_FILE, "r", encoding='utf-8') as f: return set(line.strip() for line in f)
@@ -103,13 +104,13 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v31 (الحل النهائي) ---")
+    print("--- بدء تشغيل الروبوت الناشر v32 (الحل النهائي بدمج الكتل) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
         return
 
-    # ... (جمع البيانات يبقى كما هو)
+    # ... (جمع البيانات وإعداد المتصفح يبقى كما هو)
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     image_url = extract_image_url_from_entry(post_to_publish)
@@ -132,7 +133,6 @@ def main():
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
     
-    # ... (إعداد المتصفح والكوكيز يبقى كما هو)
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
@@ -163,58 +163,48 @@ def main():
         title_field.click()
         title_field.send_keys(final_title)
 
-        # الضغط على حقل النص الأساسي لتفعيله أول مرة
-        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]'))).click()
-        time.sleep(1) # انتظار قصير للتأكد من التركيز
-
-        print("--- 📋 بدء عملية اللصق الذكية...")
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        story_field.click()
         
+        # --- [الحل الأكثر استقرارًا هنا] لصق المحتوى ككتل مدمجة ---
+        print("--- 📋 بدء عملية اللصق بالكتل...")
         content_parts = re.split(r'<!-- IMAGE \d+ PLACEHOLDER -->', generated_html_content)
         
-        # لصق الجزء الأول
+        # لصق الكتلة الأولى (نص فقط)
         if content_parts[0].strip():
-            print("--- لصق الجزء الأول من النص...")
-            active_element = driver.switch_to.active_element
-            paste_html(driver, active_element, content_parts[0])
+            print("--- لصق الكتلة النصية الأولى...")
+            paste_html(driver, story_field, content_parts[0])
+            time.sleep(2)
 
-        # لصق الصورة الأولى والجزء الثاني
+        # دمج ولصق الكتلة الثانية (صورة + نص)
         if image_url and len(content_parts) > 1:
-            # إنشاء سطر جديد للصورة
-            driver.switch_to.active_element.send_keys(Keys.ENTER)
-            time.sleep(1)
-            
-            print("--- لصق الصورة الأولى...")
+            story_field.send_keys(Keys.ENTER)
             alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
             image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
-            paste_html(driver, driver.switch_to.active_element, image1_html)
-            print("--- ⏳ انتظار معالجة الصورة الأولى...")
-            time.sleep(8) # زيادة الوقت لضمان التحميل الكامل
-            
+            chunk_2 = image1_html
             if content_parts[1].strip():
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
-                time.sleep(1)
-                print("--- لصق الجزء الثاني من النص...")
-                paste_html(driver, driver.switch_to.active_element, content_parts[1])
+                chunk_2 += content_parts[1]
+            
+            print("--- دمج ولصق الكتلة الثانية (الصورة 1 + النص)...")
+            paste_html(driver, story_field, chunk_2)
+            print("--- ⏳ انتظار معالجة الصورة في الكتلة الثانية...")
+            time.sleep(10) # زيادة الوقت للمعالجة الموثوقة
 
-        # لصق الصورة الثانية والجزء الثالث
+        # دمج ولصق الكتلة الثالثة (صورة + نص)
         if image_url and len(content_parts) > 2:
-            driver.switch_to.active_element.send_keys(Keys.ENTER)
-            time.sleep(1)
-
-            print("--- لصق الصورة الثانية...")
+            story_field.send_keys(Keys.ENTER)
             alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
             image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
-            paste_html(driver, driver.switch_to.active_element, image2_html)
-            print("--- ⏳ انتظار معالجة الصورة الثانية...")
-            time.sleep(8)
-            
+            chunk_3 = image2_html
             if content_parts[2].strip():
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
-                time.sleep(1)
-                print("--- لصق الجزء الأخير من النص...")
-                paste_html(driver, driver.switch_to.active_element, content_parts[2])
+                chunk_3 += content_parts[2]
 
-        print("--- ✅ انتهت عملية اللصق.")
+            print("--- دمج ولصق الكتلة الثالثة (الصورة 2 + النص)...")
+            paste_html(driver, story_field, chunk_3)
+            print("--- ⏳ انتظار معالجة الصورة في الكتلة الثالثة...")
+            time.sleep(10)
+
+        print("--- ✅ انتهت عملية اللصق بالكتل.")
 
         # ... (باقي خطوات النشر تبقى كما هي)
         print("--- 5. بدء عملية النشر...")
