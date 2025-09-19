@@ -1,4 +1,4 @@
-# main.py (النسخة المُحسّنة)
+# main.py (v29 - إصلاح محدد الوسوم)
 
 import feedparser
 import os
@@ -76,7 +76,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     **Output Format:**
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
     """
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}' # تم تحديث اسم النموذج
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     try:
@@ -96,7 +96,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v28 (الحل الموثوق للصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v29 (إصلاح محدد الوسوم) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -128,18 +128,15 @@ def main():
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
     
-    # --- [الحل هنا] بناء المحتوى النهائي ككتلة HTML واحدة قبل اللصق ---
     full_html_content = generated_html_content
     if image_url:
         print("--- 🔧 دمج الصور في محتوى المقال...")
         alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
         alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
         
-        # إنشاء وسوم الصور بشكل صحيح
         image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
         image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
         
-        # استبدال العناصر النائبة في السلسلة النصية قبل عملية اللصق
         full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image1_html)
         full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image2_html)
 
@@ -179,13 +176,11 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         
-        # استخدام طريقة اللصق الموثوقة مع المحتوى الكامل والجاهز
         print("--- 📋 تجهيز المحتوى النهائي للصق...")
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
         
-        # زيادة وقت الانتظار قليلاً للسماح لـ Medium بمعالجة الصور
         print("--- ⏳ انتظار معالجة الصور من قبل Medium...")
         time.sleep(8) 
 
@@ -196,9 +191,8 @@ def main():
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            # استخدام CSS selector أكثر استقراراً وتحديداً
-            tags_input_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.tags-input')))
-            tags_input = tags_input_container.find_element(By.CSS_SELECTOR, 'input, div[role="textbox"]')
+            # --- [الحل هنا] استخدام محدد مباشر وموثوق لحقل إدخال الوسوم ---
+            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
             tags_input.click()
             for tag in final_tags:
                 tags_input.send_keys(tag)
