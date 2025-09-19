@@ -94,7 +94,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24 (الإصدار المستقر) ---")
+    print("--- بدء تشغيل الروبوت الناشر v25 (الإصدار الذهبي المستقر) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -159,60 +159,50 @@ def main():
         title_field.click()
         title_field.send_keys(final_title)
 
+        # انقر مرة واحدة لتنشيط حقل القصة
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
-
-        # --- *** منطق جديد ومستقر *** ---
         
-        # لصق الجزء الأول
+        # استخدم body لإرسال جميع الأوامر اللاحقة لتجنب StaleElementReferenceException
+        body = driver.find_element(By.CSS_SELECTOR, 'body')
+
         if content_parts and content_parts[0].strip():
             driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[0])
             time.sleep(1)
 
-        # إدراج الصورة الأولى
         if image_url and len(content_parts) > 1:
             print("--- إدراج الصورة الأولى ---")
-            story_field.send_keys(Keys.ENTER)
-            # نستخدم javascript للصق لتجنب مشاكل الحافظة
+            body.send_keys(Keys.ENTER)
             driver.execute_script("navigator.clipboard.writeText(arguments[0])", image_url)
-            story_field.send_keys(Keys.CONTROL, 'v')
-            story_field.send_keys(Keys.ENTER)
-            
-            # انتظر حتى يقوم Medium برفع الصورة
+            body.send_keys(Keys.CONTROL, 'v')
+            body.send_keys(Keys.ENTER)
             long_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type img[src^='https://cdn-images']")))
             print("--- تم رفع الصورة الأولى بنجاح ---")
-            
             alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
             driver.find_element(By.CSS_SELECTOR, "figure:last-of-type figcaption").send_keys(alt_text1)
-            # انقر خارج الصورة لإلغاء تحديدها
-            driver.find_element(By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]').click()
+            title_field.click() # انقر بعيداً لإلغاء التحديد
             time.sleep(1)
 
-        # لصق الجزء الثاني
         if len(content_parts) > 1 and content_parts[1].strip():
-            story_field.send_keys(Keys.ENTER)
+            body.send_keys(Keys.ENTER)
             driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[1])
             time.sleep(1)
 
-        # إدراج الصورة الثانية
         if image_url and len(content_parts) > 2:
             print("--- إدراج الصورة الثانية ---")
-            story_field.send_keys(Keys.ENTER)
+            body.send_keys(Keys.ENTER)
             driver.execute_script("navigator.clipboard.writeText(arguments[0])", image_url)
-            story_field.send_keys(Keys.CONTROL, 'v')
-            story_field.send_keys(Keys.ENTER)
-
+            body.send_keys(Keys.CONTROL, 'v')
+            body.send_keys(Keys.ENTER)
             long_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type img[src^='https://cdn-images']")))
             print("--- تم رفع الصورة الثانية بنجاح ---")
-            
             alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
             driver.find_element(By.CSS_SELECTOR, "figure:last-of-type figcaption").send_keys(alt_text2)
-            driver.find_element(By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]').click()
+            title_field.click()
             time.sleep(1)
 
-        # لصق الجزء الأخير
         if len(content_parts) > 2 and content_parts[2].strip():
-            story_field.send_keys(Keys.ENTER)
+            body.send_keys(Keys.ENTER)
             driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[2])
 
         print("--- 5. بدء عملية النشر...")
