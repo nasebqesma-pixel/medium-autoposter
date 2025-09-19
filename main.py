@@ -19,7 +19,6 @@ RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# (جميع الدوال المساعدة من get_posted_links إلى rewrite_content_with_gemini تبقى كما هي)
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
     with open(POSTED_LINKS_FILE, "r", encoding='utf-8') as f: return set(line.strip() for line in f)
@@ -53,7 +52,7 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-def rewrite_content_with_gemini(title, content_html, original_link, image_url):
+def rewrite_content_with_gemini(title, content_html, original_link):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
@@ -61,16 +60,17 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
     You are a professional SEO copywriter for Medium.
-    Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
+    Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO and engagement.
     **Original Data:**
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
     - Link to the full recipe: "{original_link}"
-    - Available Image URL: "{image_url}"
     **Article Requirements:**
-    1.  **Focus Keyword & Title:**...
-    2.  **Article Body (HTML Format):** Write a 600-700 word article in clean HTML. Crucially, you MUST insert two image placeholders exactly as written below: `<!-- IMAGE 1 PLACEHOLDER -->` after the intro, and `<!-- IMAGE 2 PLACEHOLDER -->` before the listicle section. Do not add your own `<img>` tags.
-    3.  **Smart Closing Method...**
+    1.  **Title:** Create a new engaging, SEO-friendly title.
+    2.  **Article Body (HTML Format):** Write a 600-700 word article in clean HTML. It is crucial that you insert two image placeholders exactly as written below:
+        - `<!-- IMAGE 1 PLACEHOLDER -->` after the intro.
+        - `<!-- IMAGE 2 PLACEHOLDER -->` before a relevant section (like a listicle).
+    3.  **Smart Closing:** End with a wrap-up, a CTA to the original link, and a question for readers.
     **Output Format:**
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
     """
@@ -94,7 +94,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v26 (الحل الموثوق) ---")
+    print("--- بدء تشغيل الروبوت الناشر v27 (الحل الموثوق) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -112,18 +112,21 @@ def main():
     if 'content' in post_to_publish and post_to_publish.content:
         original_content_html = post_to_publish.content[0].value
 
-    rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, image_url)
+    rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link)
     
     if not rewritten_data:
-        print("--- فشل التواصل مع Gemini. تم إلغاء النشر هذه المرة.")
-        return
-        
-    final_title = rewritten_data["title"]
-    generated_html_content = rewritten_data["content"]
-    ai_tags = rewritten_data.get("tags", [])
-    ai_alt_texts = rewritten_data.get("alt_texts", [])
+        print("--- فشل التواصل مع Gemini. سيتم استخدام المحتوى الأصلي.")
+        final_title = original_title
+        generated_html_content = original_content_html
+        ai_tags = []
+        ai_alt_texts = []
+    else:
+        final_title = rewritten_data["title"]
+        generated_html_content = rewritten_data["content"]
+        ai_tags = rewritten_data.get("tags", [])
+        ai_alt_texts = rewritten_data.get("alt_texts", [])
     
-    # --- *** بناء المحتوى النهائي ككتلة HTML واحدة (العودة للطريقة الموثوقة) *** ---
+    # --- بناء المحتوى النهائي ككتلة HTML واحدة (العودة للطريقة الموثوقة) ---
     full_html_content = generated_html_content
     if image_url:
         alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
@@ -175,7 +178,7 @@ def main():
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
-        time.sleep(5) # انتظر قليلاً ليعالج المحرر كل المحتوى
+        time.sleep(5)
 
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
