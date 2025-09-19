@@ -1,5 +1,3 @@
-# main.py (v32 - المعيار الاحترافي النهائي)
-
 import feedparser
 import os
 import time
@@ -20,8 +18,6 @@ from selenium_stealth import stealth
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# ... (كل الدوال المساعدة من get_posted_links إلى rewrite_content_with_gemini تبقى كما هي) ...
 
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
@@ -48,7 +44,7 @@ def extract_image_url_from_entry(entry):
             if 'url' in media and media.get('medium') == 'image': return media['url']
     if hasattr(entry, 'enclosures') and entry.enclosures:
         for enclosure in entry.enclosures:
-            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure['href']
+            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure.href
     content_html = ""
     if 'content' in entry and entry.content: content_html = entry.content[0].value
     else: content_html = entry.summary
@@ -56,33 +52,37 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-def paste_html(driver, element, html_content):
-    js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
-    driver.execute_script(js_script, html_content)
-    element.send_keys(Keys.CONTROL, 'v')
-    time.sleep(2)
-
-def rewrite_content_with_gemini(title, content_html, original_link):
+def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
+
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
     You are a professional SEO copywriter for Medium.
-    Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO and engagement.
+    Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
+
     **Original Data:**
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
     - Link to the full recipe: "{original_link}"
+    - Available Image URL: "{image_url}"
+
     **Article Requirements:**
-    1.  **Title:** Create a new engaging, SEO-friendly title.
-    2.  **Article Body (HTML Format):** Write a 600-700 word article in clean HTML. It is crucial that you insert two image placeholders exactly as written below:
-        - `<!-- IMAGE 1 PLACEHOLDER -->` after the intro.
-        - `<!-- IMAGE 2 PLACEHOLDER -->` before a relevant section (like a listicle).
-    3.  **Smart Closing:** End with a wrap-up, a CTA to the original link, and a question for readers.
+    1.  **Focus Keyword:** Identify the main focus keyword from the original title.
+    2.  **Title:** Create a new title using the Hybrid Headline strategy...
+    3.  **Article Body (HTML Format):**
+        - Write a 600-700 word article in clean HTML.
+        - **Image Placement:** Crucially, you MUST insert two image placeholders exactly as written below:
+            - `<!-- IMAGE 1 PLACEHOLDER -->` after the intro.
+            - `<!-- IMAGE 2 PLACEHOLDER -->` before the listicle section.
+            Do not add your own `<img>` tags.
+        - (Other requirements remain the same...)
+    4.  **Smart Closing Method...**
     **Output Format:**
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
+    ...
     """
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
@@ -94,7 +94,8 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
         json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if json_match:
-            result = json.loads(json_match.group(0))
+            clean_json_str = json_match.group(0)
+            result = json.loads(clean_json_str)
             print("--- ✅ تم استلام مقال كامل من Gemini.")
             return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
         else:
@@ -103,9 +104,8 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
 
-
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v32 (التحكم المطلق بالمؤشر) ---")
+    print("--- بدء تشغيل الروبوت الناشر v21.4 (معالج الصور المُحسّن) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -113,25 +113,60 @@ def main():
 
     original_title = post_to_publish.title
     original_link = post_to_publish.link
-    image_url = extract_image_url_from_entry(post_to_publish)
-    if image_url: print(f"--- 🖼️ تم العثور على رابط الصورة: {image_url}")
-    else: print("--- ⚠️ لم يتم العثور على رابط صورة في RSS.")
     
-    original_content_html = post_to_publish.summary
+    image_url = extract_image_url_from_entry(post_to_publish)
+    if image_url:
+        print(f"--- 🖼️ تم العثور على رابط الصورة بنجاح: {image_url}")
+    else:
+        print("--- ⚠️ لم يتم العثور على رابط صورة في RSS لهذا المقال.")
+    
+    original_content_html = ""
     if 'content' in post_to_publish and post_to_publish.content:
         original_content_html = post_to_publish.content[0].value
-
-    rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link)
-    
-    if not rewritten_data:
-        final_title, generated_html_content = original_title, original_content_html
-        ai_tags, ai_alt_texts = [], []
     else:
+        original_content_html = post_to_publish.summary
+
+    rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, image_url)
+    
+    if rewritten_data:
         final_title = rewritten_data["title"]
         generated_html_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
-        ai_alt_texts = rewritten_data.get("alt_texts", [])
-    
+        
+        # --- تعديل: منطق جديد لإدراج الصور ---
+        full_html_content = generated_html_content
+        if image_url:
+            print("--- 🔧 جاري إعداد وإدراج الصور في المحتوى...")
+            # استخراج اسم الموقع من الرابط الأصلي لإضافته في التعليق على الصورة
+            site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "المصدر"
+            
+            # إنشاء كود HTML متكامل للصورة مع تعليق توضيحي
+            image_html_block = (
+                f'<figure>'
+                f'<img src="{image_url}" alt="{final_title}">'
+                f'<figcaption><em>وصفة {final_title} - مصدر الصورة: {site_name}</em></figcaption>'
+                f'</figure>'
+            )
+
+            # استبدال العنصر النائب الأول والثاني بنفس كود الصورة
+            full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image_html_block)
+            full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image_html_block)
+            print("--- ✅ تم إدراج الصور بنجاح في المحتوى.")
+        else:
+            # إذا لم يتم العثور على صورة، قم بإزالة العناصر النائبة لتجنب ظهورها كنص
+            print("--- لا توجد صورة لإدراجها. سيتم إزالة العناصر النائبة.")
+            full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", "")
+            full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
+        # --- نهاية التعديل ---
+
+    else:
+        print("--- سيتم استخدام المحتوى الأصلي بسبب فشل Gemini.")
+        final_title = original_title
+        ai_tags = []
+        image_html = f'<figure><img src="{image_url}" alt="{final_title}"></figure>' if image_url else ""
+        full_html_content = image_html + "<br>" + original_content_html
+
+    # --- بقية الكود الخاص بـ Selenium يبقى كما هو دون تغيير ---
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
@@ -146,69 +181,40 @@ def main():
 
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
+
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
     try:
+        print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
         driver.add_cookie({"name": "uid", "value": uid_cookie, "domain": ".medium.com"})
         
+        print("--- 3. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
+
         wait = WebDriverWait(driver, 30)
 
-        print("--- 4. كتابة العنوان...")
+        print("--- 4. كتابة العنوان والمحتوى...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         title_field.send_keys(final_title)
 
-        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]'))).click()
-        time.sleep(1)
-
-        print("--- 📋 بدء عملية اللصق الاحترافية بالترتيب...")
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        story_field.click()
         
-        content_parts = re.split(r'<!-- IMAGE \d+ PLACEHOLDER -->', generated_html_content)
-        
-        image_htmls = []
-        if image_url:
-            alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-            image_htmls.append(f'<img src="{image_url}" alt="{alt_text1}">')
-            # نفترض أن المحتوى يطلب دائماً مكانين للصور
-            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
-            image_htmls.append(f'<img src="{image_url}" alt="{alt_text2}">')
+        js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
+        driver.execute_script(js_script, full_html_content)
+        story_field.send_keys(Keys.CONTROL, 'v')
+        time.sleep(5)
 
-        # --- [الحل هنا] حلقة تكرارية تضمن الترتيب الصحيح ---
-        for i, part in enumerate(content_parts):
-            # 1. لصق الجزء النصي
-            if part.strip():
-                print(f"--- لصق الجزء النصي رقم {i + 1}...")
-                paste_html(driver, driver.switch_to.active_element, part)
-
-            # 2. التحقق إذا كان هناك صورة يجب إدراجها بعد هذا الجزء
-            if i < len(image_htmls):
-                print(f"--- التحضير لإدراج الصورة رقم {i + 1}...")
-                # 3. الانتقال إلى نهاية المحتوى بالكامل (الخطوة الحاسمة)
-                driver.switch_to.active_element.send_keys(Keys.CONTROL, Keys.END)
-                time.sleep(1)
-                
-                # 4. إنشاء سطر جديد فارغ للصورة
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
-                time.sleep(1)
-
-                # 5. لصق الصورة في السطر الجديد
-                print(f"--- لصق الصورة رقم {i + 1}...")
-                paste_html(driver, driver.switch_to.active_element, image_htmls[i])
-                print(f"--- ⏳ انتظار معالجة الصورة رقم {i + 1}...")
-                time.sleep(8)
-        
-        print("--- ✅ انتهت عملية اللصق بنجاح وبالترتيب الصحيح.")
-
-        # --- باقي الخطوات تبقى كما هي ---
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
-        
-        print("--- 6. إضافة الوسوم...")
+
+        print("--- 6. إضافة الوسوم المتاحة...")
         final_tags = ai_tags[:5] if ai_tags else []
+        
         if final_tags:
             tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
             tags_input.click()
@@ -218,16 +224,19 @@ def main():
                 tags_input.send_keys(Keys.ENTER)
                 time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
-        
+        else:
+            print("--- لا توجد وسوم لإضافتها.")
+
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
-        
+
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
+
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح تام! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
