@@ -20,6 +20,7 @@ RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# (جميع الدوال المساعدة من get_posted_links إلى rewrite_content_with_gemini تبقى كما هي)
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
     with open(POSTED_LINKS_FILE, "r", encoding='utf-8') as f: return set(line.strip() for line in f)
@@ -95,7 +96,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.1 (تصحيح لصق الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v22.2 (زيادة مهلة الانتظار) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -143,6 +144,9 @@ def main():
 
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
+    # --- *** هذا هو السطر الجديد والمهم *** ---
+    driver.set_script_timeout(60) # زيادة المهلة إلى 60 ثانية
+
     try:
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
@@ -178,8 +182,6 @@ def main():
             if response.status_code == 200:
                 b64_image = base64.b64encode(response.content).decode('utf-8')
                 
-                # --- *** الجزء الذي تم تصحيحه *** ---
-                # نستخدم الآن دالة async مع fetch وهي أكثر موثوقية
                 driver.execute_async_script("""
                     const b64_data = arguments[0];
                     const callback = arguments[1];
@@ -192,9 +194,8 @@ def main():
                 """, b64_image)
 
                 driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.CONTROL, 'v')
-                time.sleep(10) # انتظر وقتًا أطول لرفع الصورة
+                time.sleep(10)
                 
-                # إضافة التعليق والنص البديل
                 try:
                     alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
                     caption_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figcaption")))
