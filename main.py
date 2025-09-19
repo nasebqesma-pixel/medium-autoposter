@@ -10,14 +10,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 import re
+from bs4 import BeautifulSoup # --- أضفنا مكتبة جديدة لتحليل المحتوى ---
+
 # --- medium المكتبة الجديدة لمحاكاة الإنسان في النشر على ---
-        # --- برمجة ahmed si ---
+# --- برمجة ahmed si ---
 
-
-
-  # ---   غيير فقط اسم موقع بدون تغيير feed       ---
-
-RSS_URL = "https://Fastyummyfood.com/feed"
+# ---   غيير فقط اسم موقع بدون تغيير feed       ---
+RSS_URL = "https://grandmabites.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 
 def get_posted_links():
@@ -53,6 +52,36 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
+# --- دالة جديدة ومحسّنة لاستخلاص جزء من المقال ---
+def extract_intro_from_html(html_content, num_paragraphs=3):
+    """
+    تستخدم هذه الدالة BeautifulSoup لاستخلاص أول عدد معين من الفقرات.
+    """
+    if not html_content:
+        return ""
+    
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # ابحث عن كل الفقرات النصية <p>
+    paragraphs = soup.find_all('p')
+    
+    intro_html = ""
+    count = 0
+    for p in paragraphs:
+        # تجاهل الفقرات الفارغة أو التي تحتوي على صور فقط
+        if p.get_text(strip=True):
+            intro_html += str(p)
+            count += 1
+            if count >= num_paragraphs:
+                break
+                
+    # إذا لم يتم العثور على أي فقرات، ارجع إلى المحتوى الأصلي كخطة بديلة
+    if not intro_html:
+        return html_content
+
+    return intro_html
+
+
 def main():
     print("--- بدء تشغيل الروبوت الناشر v19 (النسخة الذهبية) ---")
     post_to_publish = get_next_post_to_publish()
@@ -68,9 +97,9 @@ def main():
         return
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+    # options.add_argument("--headless") # يمكنك تعطيل هذا السطر مؤقتًا لرؤية ما يفعله المتصفح
     options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    options.add-argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
     
     service = ChromeService(ChromeDriverManager().install())
@@ -96,26 +125,37 @@ def main():
         
         image_url = extract_image_url_from_entry(post_to_publish)
         image_html = f'<img src="{image_url}">' if image_url else ""
-        text_content_html = ""
+        
+        # --- التعديل الرئيسي هنا ---
+        raw_content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
-            text_content_html = post_to_publish.content[0].value
+            raw_content_html = post_to_publish.content[0].value
         else:
-            text_content_html = post_to_publish.summary
-        original_link = post_to_publish.link
-        # --- ها العنوان اسفله غييره بما يناسبك  ---
+            raw_content_html = post_to_publish.summary
 
-        call_to_action = "See the full recipe — here’s the link! 👉👉"
-        link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
-        full_html_content = image_html + text_content_html + link_html
+        # استدعاء الدالة الجديدة للحصول على المقدمة (مثلاً، أول 3 فقرات)
+        intro_content = extract_intro_from_html(raw_content_html, num_paragraphs=3)
+        print("--- تم استخلاص مقدمة المقال بنجاح ---")
+
+        original_link = post_to_publish.link
+        # --- يمكنك تخصيص هذه الرسالة ---
+        call_to_action = "Love this sneak peek? 🌟 **Continue reading the full recipe, including step-by-step photos and tips, on our main blog.**"
+        link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Click here to visit grandmabites.com</a>.</em></p>'
+        
+        # تجميع المحتوى النهائي للنشر
+        full_html_content = image_html + intro_content + link_html
 
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
+        
+        # استخدام JavaScript للصق المحتوى بتنسيقه الكامل
         js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
         time.sleep(5)
 
         print("--- 5. بدء عملية النشر...")
+        # (بقية الكود يبقى كما هو)
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
 
@@ -133,10 +173,8 @@ def main():
             print(f"--- تمت إضافة الوسوم: {', '.join(tags_to_add)}")
 
         print("--- 7. إرسال أمر النشر النهائي...")
-        # نستخدم نفس المعرّف الناجح من v13.2
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        # نضيف التحسينات من v14 لضمان الموثوقية
-        time.sleep(2) # انتظار استباقي
+        time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
         
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
