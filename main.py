@@ -94,7 +94,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v25 (الإصدار الذهبي المستقر) ---")
+    print("--- بدء تشغيل الروبوت الناشر v26 (الحل الموثوق) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -123,7 +123,17 @@ def main():
     ai_tags = rewritten_data.get("tags", [])
     ai_alt_texts = rewritten_data.get("alt_texts", [])
     
-    content_parts = re.split(r'<!-- IMAGE \d+ PLACEHOLDER -->', generated_html_content)
+    # --- *** بناء المحتوى النهائي ككتلة HTML واحدة (العودة للطريقة الموثوقة) *** ---
+    full_html_content = generated_html_content
+    if image_url:
+        alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
+        alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
+        
+        image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
+        image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
+        
+        full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image1_html)
+        full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image2_html)
 
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
@@ -152,58 +162,20 @@ def main():
         driver.get("https://medium.com/new-story")
 
         wait = WebDriverWait(driver, 30)
-        long_wait = WebDriverWait(driver, 60)
 
-        print("--- 4. كتابة العنوان والمحتوى على مراحل...")
+        print("--- 4. كتابة العنوان ولصق المحتوى الكامل...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         title_field.send_keys(final_title)
 
-        # انقر مرة واحدة لتنشيط حقل القصة
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         
-        # استخدم body لإرسال جميع الأوامر اللاحقة لتجنب StaleElementReferenceException
-        body = driver.find_element(By.CSS_SELECTOR, 'body')
-
-        if content_parts and content_parts[0].strip():
-            driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[0])
-            time.sleep(1)
-
-        if image_url and len(content_parts) > 1:
-            print("--- إدراج الصورة الأولى ---")
-            body.send_keys(Keys.ENTER)
-            driver.execute_script("navigator.clipboard.writeText(arguments[0])", image_url)
-            body.send_keys(Keys.CONTROL, 'v')
-            body.send_keys(Keys.ENTER)
-            long_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type img[src^='https://cdn-images']")))
-            print("--- تم رفع الصورة الأولى بنجاح ---")
-            alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-            driver.find_element(By.CSS_SELECTOR, "figure:last-of-type figcaption").send_keys(alt_text1)
-            title_field.click() # انقر بعيداً لإلغاء التحديد
-            time.sleep(1)
-
-        if len(content_parts) > 1 and content_parts[1].strip():
-            body.send_keys(Keys.ENTER)
-            driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[1])
-            time.sleep(1)
-
-        if image_url and len(content_parts) > 2:
-            print("--- إدراج الصورة الثانية ---")
-            body.send_keys(Keys.ENTER)
-            driver.execute_script("navigator.clipboard.writeText(arguments[0])", image_url)
-            body.send_keys(Keys.CONTROL, 'v')
-            body.send_keys(Keys.ENTER)
-            long_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type img[src^='https://cdn-images']")))
-            print("--- تم رفع الصورة الثانية بنجاح ---")
-            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
-            driver.find_element(By.CSS_SELECTOR, "figure:last-of-type figcaption").send_keys(alt_text2)
-            title_field.click()
-            time.sleep(1)
-
-        if len(content_parts) > 2 and content_parts[2].strip():
-            body.send_keys(Keys.ENTER)
-            driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[2])
+        # استخدام طريقة اللصق الموثوقة من السكريبت الأصلي
+        js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
+        driver.execute_script(js_script, full_html_content)
+        story_field.send_keys(Keys.CONTROL, 'v')
+        time.sleep(5) # انتظر قليلاً ليعالج المحرر كل المحتوى
 
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
@@ -231,7 +203,7 @@ def main():
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح مع رفع الصور أصلياً! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
