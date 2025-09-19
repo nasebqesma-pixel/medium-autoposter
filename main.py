@@ -16,7 +16,7 @@ from selenium_stealth import stealth
 # --- برمجة ahmed si ---
 
 # ---   غيير فقط اسم موقع بدون تغيير feed       ---
-RSS_URL = "https://Fastyummyfood.com/feed"
+RSS_URL = "https://Fastyummyfood.com/feed" # تم التحديث لاستخدام الرابط من سجل الخطأ
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -74,7 +74,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     
-    # الـ Prompt الاحترافي والمفصل الذي قدمته
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
@@ -133,12 +132,12 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "maxOutputTokens": 4096,  # زيادة الحد للسماح بمقالات أطول
+            "maxOutputTokens": 4096,
         }
     }
     
     try:
-        response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180) # زيادة المهلة
+        response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
         response.raise_for_status()
         
         response_json = response.json()
@@ -163,13 +162,12 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return {"title": title, "content": content_html, "tags": [], "alt_texts": []}
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v21 (نسخة الكاتب المحترف) ---")
+    print("--- بدء تشغيل الربوت الناشر v21.1 (نسخة مصححة) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
         return
 
-    # --- استخراج كل البيانات اللازمة من المقال الأصلي ---
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     image_url = extract_image_url_from_entry(post_to_publish)
@@ -177,23 +175,23 @@ def main():
     if 'content' in post_to_publish and post_to_publish.content:
         original_content_html = post_to_publish.content[0].value
 
-    # --- ✨ الجزء الجديد: إنشاء مقال كامل ومحسن عبر Gemini ✨ ---
     rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, image_url)
     
     final_title = rewritten_data["title"]
     generated_html_content = rewritten_data["content"]
     ai_tags = rewritten_data["tags"]
     ai_alt_texts = rewritten_data["alt_texts"]
-    # -----------------------------------------------------------
-
-    # --- معالجة الصور واستبدال علامات الأماكن في المحتوى ---
+    
     full_html_content = generated_html_content
     if image_url:
         alt_text1 = ai_alt_texts[0] if len(ai_alt_texts) > 0 else "Recipe main image"
         alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed view of the recipe"
         
-        caption1 = f"<em>{alt_text1} - Fastyummyfood.com</em>"
-        caption2 = f"<em>{alt_text2} - Fastyummyfood.com</em>"
+        # استخدم اسم الموقع من الرابط الأصلي بشكل ديناميكي
+        site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
+        
+        caption1 = f"<em>{alt_text1} - {site_name}</em>"
+        caption2 = f"<em>{alt_text2} - {site_name}</em>"
         
         image1_html = f'<figure><img src="{image_url}" alt="{alt_text1}"><figcaption>{caption1}</figcaption></figure>'
         image2_html = f'<figure><img src="{image_url}" alt="{alt_text2}"><figcaption>{caption2}</figcaption></figure>'
@@ -247,20 +245,28 @@ def main():
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
 
-        print("--- 6. إضافة الوسوم المقترحة من Gemini...")
+        print("--- 6. إضافة الوسوم المتاحة...")
         tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
         tags_input.click()
         
-        # استخدام الوسوم التي أنشأها الذكاء الاصطناعي (أول 5)
-        final_tags = ai_tags[:5] if ai_tags else [tag.term for tag in post_to_publish.tags[:5]]
-
-        for tag in final_tags:
-            tags_input.send_keys(tag)
-            time.sleep(0.5)
-            tags_input.send_keys(Keys.ENTER)
-            time.sleep(1)
+        # --- *** الجزء الذي تم تصحيحه *** ---
+        final_tags = []
+        if ai_tags:
+            # الخيار الأول: استخدام الوسوم من Gemini
+            final_tags = ai_tags[:5]
+        elif hasattr(post_to_publish, 'tags') and post_to_publish.tags:
+            # الخيار الثاني (احتياطي): استخدام الوسوم من RSS إذا كانت موجودة
+            final_tags = [tag.term for tag in post_to_publish.tags[:5]]
+        else:
+            # إذا لم يوجد أي شيء، استمر بدون وسوم
+            print("--- لم يتم العثور على وسوم من Gemini أو RSS.")
         
         if final_tags:
+            for tag in final_tags:
+                tags_input.send_keys(tag)
+                time.sleep(0.5)
+                tags_input.send_keys(Keys.ENTER)
+                time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
 
         print("--- 7. إرسال أمر النشر النهائي...")
@@ -272,13 +278,14 @@ def main():
         time.sleep(15)
 
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال المحسن بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
         driver.save_screenshot("error_screenshot.png")
         with open("error_page_source.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
+        # رفع الخطأ لإيقاف العملية في GitHub Actions
         raise e
     finally:
         driver.quit()
