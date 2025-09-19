@@ -4,7 +4,6 @@ import time
 import re
 import requests
 import json
-import base64
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -58,7 +57,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
-
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
@@ -96,7 +94,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.2 (زيادة مهلة الانتظار) ---")
+    print("--- بدء تشغيل الروبوت الناشر v23 (لصق URL الموثوق) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -144,9 +142,6 @@ def main():
 
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
-    # --- *** هذا هو السطر الجديد والمهم *** ---
-    driver.set_script_timeout(60) # زيادة المهلة إلى 60 ثانية
-
     try:
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
@@ -166,57 +161,55 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
 
+        # لصق الجزء الأول من النص
         if content_parts and content_parts[0].strip():
-            driver.execute_script("""
-                const html = arguments[0];
-                const blob = new Blob([html], { type: 'text/html' });
-                const item = new ClipboardItem({ 'text/html': blob });
-                navigator.clipboard.write([item]);
-            """, content_parts[0])
-            story_field.send_keys(Keys.CONTROL, 'v')
+            driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[0])
+            time.sleep(2)
+        
+        # لصق الصورة الأولى عبر رابط URL
+        if image_url and len(content_parts) > 1:
+            print("--- 📋 لصق رابط الصورة الأولى وانتظار المعالجة...")
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(image_url)
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            time.sleep(10) # انتظر وقتًا كافيًا ليقوم Medium برفع الصورة
+            try:
+                alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
+                caption_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type figcaption")))
+                driver.execute_script("arguments[0].innerText = arguments[1];", caption_element, alt_text1)
+                image_element = driver.find_element(By.CSS_SELECTOR, "figure:last-of-type img.graf-image")
+                driver.execute_script("arguments[0].alt = arguments[1];", image_element, alt_text1)
+            except Exception as e:
+                print(f"--- تحذير: لم يتمكن من إضافة تعليق للصورة الأولى. {e}")
+
+        # لصق الجزء الثاني من النص
+        if len(content_parts) > 1 and content_parts[1].strip():
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[1])
             time.sleep(2)
 
-        if image_url and len(content_parts) > 1:
-            print("--- 📥 جاري تنزيل ورفع الصورة الأولى...")
-            response = requests.get(image_url, timeout=30)
-            if response.status_code == 200:
-                b64_image = base64.b64encode(response.content).decode('utf-8')
-                
-                driver.execute_async_script("""
-                    const b64_data = arguments[0];
-                    const callback = arguments[1];
-                    fetch(`data:image/jpeg;base64,${b64_data}`)
-                        .then(res => res.blob())
-                        .then(blob => {
-                            const item = new ClipboardItem({ 'image/jpeg': blob });
-                            navigator.clipboard.write([item]).then(() => callback());
-                        });
-                """, b64_image)
+        # لصق الصورة الثانية (إذا كانت مطلوبة)
+        if image_url and len(content_parts) > 2:
+            print("--- 📋 لصق رابط الصورة الثانية...")
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(image_url)
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            time.sleep(10)
+            try:
+                alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
+                # نستخدم last-of-type للتأكد من أننا نختار الصورة الجديدة
+                caption_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type figcaption")))
+                driver.execute_script("arguments[0].innerText = arguments[1];", caption_element, alt_text2)
+                image_element = driver.find_element(By.CSS_SELECTOR, "figure:last-of-type img.graf-image")
+                driver.execute_script("arguments[0].alt = arguments[1];", image_element, alt_text2)
+            except Exception as e:
+                print(f"--- تحذير: لم يتمكن من إضافة تعليق للصورة الثانية. {e}")
 
-                driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.CONTROL, 'v')
-                time.sleep(10)
-                
-                try:
-                    alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-                    caption_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figcaption")))
-                    driver.execute_script("arguments[0].innerText = arguments[1];", caption_element, f"{alt_text1}")
-                    image_element = driver.find_element(By.CSS_SELECTOR, "img.graf-image")
-                    driver.execute_script("arguments[0].alt = arguments[1];", image_element, alt_text1)
-                    driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
-                except Exception as e:
-                    print(f"--- تحذير: لم يتمكن من إضافة تعليق للصورة الأولى. {e}")
+        # لصق بقية المحتوى
+        if len(content_parts) > 2 and content_parts[2].strip():
+            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[2])
 
-            if len(content_parts) > 1 and content_parts[1].strip():
-                driver.execute_script("""
-                    const html = arguments[0];
-                    const blob = new Blob([html], { type: 'text/html' });
-                    const item = new ClipboardItem({ 'text/html': blob });
-                    navigator.clipboard.write([item]);
-                """, content_parts[1])
-                driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.CONTROL, 'v')
-                time.sleep(2)
-        
-        # (بقية الكود للنشر وإضافة الوسوم يبقى كما هو)
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
