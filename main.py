@@ -45,7 +45,7 @@ def extract_image_url_from_entry(entry):
             if 'url' in media and media.get('medium') == 'image': return media['url']
     if hasattr(entry, 'enclosures') and entry.enclosures:
         for enclosure in entry.enclosures:
-            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure.href
+            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure['href']
     content_html = ""
     if 'content' in entry and entry.content: content_html = entry.content[0].value
     else: content_html = entry.summary
@@ -94,7 +94,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23 (لصق URL الموثوق) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24 (الإصدار المستقر) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -152,6 +152,7 @@ def main():
         driver.get("https://medium.com/new-story")
 
         wait = WebDriverWait(driver, 30)
+        long_wait = WebDriverWait(driver, 60)
 
         print("--- 4. كتابة العنوان والمحتوى على مراحل...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
@@ -161,59 +162,64 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
 
-        # لصق الجزء الأول من النص
+        # --- *** منطق جديد ومستقر *** ---
+        
+        # لصق الجزء الأول
         if content_parts and content_parts[0].strip():
             driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[0])
-            time.sleep(2)
-        
-        # لصق الصورة الأولى عبر رابط URL
+            time.sleep(1)
+
+        # إدراج الصورة الأولى
         if image_url and len(content_parts) > 1:
-            print("--- 📋 لصق رابط الصورة الأولى وانتظار المعالجة...")
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(image_url)
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
-            time.sleep(10) # انتظر وقتًا كافيًا ليقوم Medium برفع الصورة
-            try:
-                alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-                caption_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type figcaption")))
-                driver.execute_script("arguments[0].innerText = arguments[1];", caption_element, alt_text1)
-                image_element = driver.find_element(By.CSS_SELECTOR, "figure:last-of-type img.graf-image")
-                driver.execute_script("arguments[0].alt = arguments[1];", image_element, alt_text1)
-            except Exception as e:
-                print(f"--- تحذير: لم يتمكن من إضافة تعليق للصورة الأولى. {e}")
+            print("--- إدراج الصورة الأولى ---")
+            story_field.send_keys(Keys.ENTER)
+            # نستخدم javascript للصق لتجنب مشاكل الحافظة
+            driver.execute_script("navigator.clipboard.writeText(arguments[0])", image_url)
+            story_field.send_keys(Keys.CONTROL, 'v')
+            story_field.send_keys(Keys.ENTER)
+            
+            # انتظر حتى يقوم Medium برفع الصورة
+            long_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type img[src^='https://cdn-images']")))
+            print("--- تم رفع الصورة الأولى بنجاح ---")
+            
+            alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
+            driver.find_element(By.CSS_SELECTOR, "figure:last-of-type figcaption").send_keys(alt_text1)
+            # انقر خارج الصورة لإلغاء تحديدها
+            driver.find_element(By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]').click()
+            time.sleep(1)
 
-        # لصق الجزء الثاني من النص
+        # لصق الجزء الثاني
         if len(content_parts) > 1 and content_parts[1].strip():
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            story_field.send_keys(Keys.ENTER)
             driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[1])
-            time.sleep(2)
+            time.sleep(1)
 
-        # لصق الصورة الثانية (إذا كانت مطلوبة)
+        # إدراج الصورة الثانية
         if image_url and len(content_parts) > 2:
-            print("--- 📋 لصق رابط الصورة الثانية...")
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(image_url)
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
-            time.sleep(10)
-            try:
-                alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
-                # نستخدم last-of-type للتأكد من أننا نختار الصورة الجديدة
-                caption_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type figcaption")))
-                driver.execute_script("arguments[0].innerText = arguments[1];", caption_element, alt_text2)
-                image_element = driver.find_element(By.CSS_SELECTOR, "figure:last-of-type img.graf-image")
-                driver.execute_script("arguments[0].alt = arguments[1];", image_element, alt_text2)
-            except Exception as e:
-                print(f"--- تحذير: لم يتمكن من إضافة تعليق للصورة الثانية. {e}")
+            print("--- إدراج الصورة الثانية ---")
+            story_field.send_keys(Keys.ENTER)
+            driver.execute_script("navigator.clipboard.writeText(arguments[0])", image_url)
+            story_field.send_keys(Keys.CONTROL, 'v')
+            story_field.send_keys(Keys.ENTER)
 
-        # لصق بقية المحتوى
+            long_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "figure:last-of-type img[src^='https://cdn-images']")))
+            print("--- تم رفع الصورة الثانية بنجاح ---")
+            
+            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
+            driver.find_element(By.CSS_SELECTOR, "figure:last-of-type figcaption").send_keys(alt_text2)
+            driver.find_element(By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]').click()
+            time.sleep(1)
+
+        # لصق الجزء الأخير
         if len(content_parts) > 2 and content_parts[2].strip():
-            driver.find_element(By.CSS_SELECTOR, 'body').send_keys(Keys.ENTER)
+            story_field.send_keys(Keys.ENTER)
             driver.execute_script("document.execCommand('insertHTML', false, arguments[0]);", content_parts[2])
 
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
-        print("--- 6. إضافة الوسوم المتاحة...")
+        
+        print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
             tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
@@ -226,10 +232,12 @@ def main():
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
         else:
             print("--- لا توجد وسوم لإضافتها.")
+            
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
+        
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
         add_posted_link(post_to_publish.link)
