@@ -1,4 +1,4 @@
-# main.py (v30 - الحل الجذري بمحاكاة المستخدم)
+# main.py (v31 - الحل النهائي باستخدام العنصر النشط)
 
 import feedparser
 import os
@@ -54,12 +54,11 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-# دالة مساعدة جديدة لتنفيذ اللصق
 def paste_html(driver, element, html_content):
     js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
     driver.execute_script(js_script, html_content)
     element.send_keys(Keys.CONTROL, 'v')
-    time.sleep(2) # انتظار قصير بعد كل لصق
+    time.sleep(2)
 
 def rewrite_content_with_gemini(title, content_html, original_link):
     # ... (هذه الدالة تبقى كما هي، لا حاجة لتعديلها)
@@ -104,12 +103,13 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v30 (الحل الجذري للصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v31 (الحل النهائي) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
         return
 
+    # ... (جمع البيانات يبقى كما هو)
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     image_url = extract_image_url_from_entry(post_to_publish)
@@ -123,29 +123,26 @@ def main():
     rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link)
     
     if not rewritten_data:
-        # ... (منطق المحتوى الأصلي يبقى كما هو)
         final_title = original_title
         generated_html_content = original_content_html
-        ai_tags = []
-        ai_alt_texts = []
+        ai_tags, ai_alt_texts = [], []
     else:
         final_title = rewritten_data["title"]
         generated_html_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
     
+    # ... (إعداد المتصفح والكوكيز يبقى كما هو)
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
         print("!!! خطأ: لم يتم العثور على الكوكيز.")
         return
-
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
-
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
@@ -166,57 +163,60 @@ def main():
         title_field.click()
         title_field.send_keys(final_title)
 
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field.click()
+        # الضغط على حقل النص الأساسي لتفعيله أول مرة
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]'))).click()
+        time.sleep(1) # انتظار قصير للتأكد من التركيز
 
-        # --- [الحل الجذري هنا] لصق المحتوى على مراحل لمحاكاة سلوك المستخدم ---
-        print("--- 📋 بدء عملية اللصق المرحلي للمحتوى...")
-
-        # تقسيم المحتوى بناءً على أماكن الصور
+        print("--- 📋 بدء عملية اللصق الذكية...")
+        
         content_parts = re.split(r'<!-- IMAGE \d+ PLACEHOLDER -->', generated_html_content)
         
-        # لصق الجزء الأول من النص
+        # لصق الجزء الأول
         if content_parts[0].strip():
             print("--- لصق الجزء الأول من النص...")
-            paste_html(driver, story_field, content_parts[0])
+            active_element = driver.switch_to.active_element
+            paste_html(driver, active_element, content_parts[0])
 
-        # التحقق من وجود صورة ولصقها
+        # لصق الصورة الأولى والجزء الثاني
         if image_url and len(content_parts) > 1:
-            alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-            image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
+            # إنشاء سطر جديد للصورة
+            driver.switch_to.active_element.send_keys(Keys.ENTER)
+            time.sleep(1)
             
             print("--- لصق الصورة الأولى...")
-            story_field.send_keys(Keys.ENTER) # سطر جديد للصورة
-            paste_html(driver, story_field, image1_html)
+            alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
+            image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
+            paste_html(driver, driver.switch_to.active_element, image1_html)
             print("--- ⏳ انتظار معالجة الصورة الأولى...")
-            time.sleep(6) # وقت كافٍ لـ Medium لجلب الصورة
+            time.sleep(8) # زيادة الوقت لضمان التحميل الكامل
             
-            # لصق الجزء الثاني من النص
             if content_parts[1].strip():
+                driver.switch_to.active_element.send_keys(Keys.ENTER)
+                time.sleep(1)
                 print("--- لصق الجزء الثاني من النص...")
-                story_field.send_keys(Keys.ENTER)
-                paste_html(driver, story_field, content_parts[1])
+                paste_html(driver, driver.switch_to.active_element, content_parts[1])
 
-        # التحقق من وجود صورة ثانية ولصقها
+        # لصق الصورة الثانية والجزء الثالث
         if image_url and len(content_parts) > 2:
-            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
-            image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
+            driver.switch_to.active_element.send_keys(Keys.ENTER)
+            time.sleep(1)
 
             print("--- لصق الصورة الثانية...")
-            story_field.send_keys(Keys.ENTER)
-            paste_html(driver, story_field, image2_html)
+            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
+            image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
+            paste_html(driver, driver.switch_to.active_element, image2_html)
             print("--- ⏳ انتظار معالجة الصورة الثانية...")
-            time.sleep(6)
-
-            # لصق الجزء المتبقي من النص
+            time.sleep(8)
+            
             if content_parts[2].strip():
+                driver.switch_to.active_element.send_keys(Keys.ENTER)
+                time.sleep(1)
                 print("--- لصق الجزء الأخير من النص...")
-                story_field.send_keys(Keys.ENTER)
-                paste_html(driver, story_field, content_parts[2])
-        
-        print("--- ✅ انتهت عملية اللصق المرحلي.")
+                paste_html(driver, driver.switch_to.active_element, content_parts[2])
 
-        # --- باقي الخطوات تبقى كما هي ---
+        print("--- ✅ انتهت عملية اللصق.")
+
+        # ... (باقي خطوات النشر تبقى كما هي)
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
