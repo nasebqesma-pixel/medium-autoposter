@@ -1,4 +1,4 @@
-# main.py (v32 - الحل النهائي بدمج الكتل)
+# main.py (v32 - المعيار الاحترافي النهائي)
 
 import feedparser
 import os
@@ -21,7 +21,8 @@ RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# ... (جميع الدوال المساعدة تبقى كما هي)
+# ... (كل الدوال المساعدة من get_posted_links إلى rewrite_content_with_gemini تبقى كما هي) ...
+
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
     with open(POSTED_LINKS_FILE, "r", encoding='utf-8') as f: return set(line.strip() for line in f)
@@ -62,7 +63,6 @@ def paste_html(driver, element, html_content):
     time.sleep(2)
 
 def rewrite_content_with_gemini(title, content_html, original_link):
-    # ... (هذه الدالة تبقى كما هي، لا حاجة لتعديلها)
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
@@ -103,14 +103,14 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
 
+
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v32 (الحل النهائي بدمج الكتل) ---")
+    print("--- بدء تشغيل الروبوت الناشر v32 (التحكم المطلق بالمؤشر) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
         return
 
-    # ... (جمع البيانات وإعداد المتصفح يبقى كما هو)
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     image_url = extract_image_url_from_entry(post_to_publish)
@@ -124,8 +124,7 @@ def main():
     rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link)
     
     if not rewritten_data:
-        final_title = original_title
-        generated_html_content = original_content_html
+        final_title, generated_html_content = original_title, original_content_html
         ai_tags, ai_alt_texts = [], []
     else:
         final_title = rewritten_data["title"]
@@ -138,24 +137,23 @@ def main():
     if not sid_cookie or not uid_cookie:
         print("!!! خطأ: لم يتم العثور على الكوكيز.")
         return
+
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
+
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
     try:
-        print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
         driver.add_cookie({"name": "uid", "value": uid_cookie, "domain": ".medium.com"})
         
-        print("--- 3. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
-
         wait = WebDriverWait(driver, 30)
 
         print("--- 4. كتابة العنوان...")
@@ -163,50 +161,48 @@ def main():
         title_field.click()
         title_field.send_keys(final_title)
 
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field.click()
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]'))).click()
+        time.sleep(1)
+
+        print("--- 📋 بدء عملية اللصق الاحترافية بالترتيب...")
         
-        # --- [الحل الأكثر استقرارًا هنا] لصق المحتوى ككتل مدمجة ---
-        print("--- 📋 بدء عملية اللصق بالكتل...")
         content_parts = re.split(r'<!-- IMAGE \d+ PLACEHOLDER -->', generated_html_content)
         
-        # لصق الكتلة الأولى (نص فقط)
-        if content_parts[0].strip():
-            print("--- لصق الكتلة النصية الأولى...")
-            paste_html(driver, story_field, content_parts[0])
-            time.sleep(2)
-
-        # دمج ولصق الكتلة الثانية (صورة + نص)
-        if image_url and len(content_parts) > 1:
-            story_field.send_keys(Keys.ENTER)
+        image_htmls = []
+        if image_url:
             alt_text1 = ai_alt_texts[0] if ai_alt_texts else "Recipe image"
-            image1_html = f'<img src="{image_url}" alt="{alt_text1}">'
-            chunk_2 = image1_html
-            if content_parts[1].strip():
-                chunk_2 += content_parts[1]
-            
-            print("--- دمج ولصق الكتلة الثانية (الصورة 1 + النص)...")
-            paste_html(driver, story_field, chunk_2)
-            print("--- ⏳ انتظار معالجة الصورة في الكتلة الثانية...")
-            time.sleep(10) # زيادة الوقت للمعالجة الموثوقة
-
-        # دمج ولصق الكتلة الثالثة (صورة + نص)
-        if image_url and len(content_parts) > 2:
-            story_field.send_keys(Keys.ENTER)
+            image_htmls.append(f'<img src="{image_url}" alt="{alt_text1}">')
+            # نفترض أن المحتوى يطلب دائماً مكانين للصور
             alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed recipe view"
-            image2_html = f'<img src="{image_url}" alt="{alt_text2}">'
-            chunk_3 = image2_html
-            if content_parts[2].strip():
-                chunk_3 += content_parts[2]
+            image_htmls.append(f'<img src="{image_url}" alt="{alt_text2}">')
 
-            print("--- دمج ولصق الكتلة الثالثة (الصورة 2 + النص)...")
-            paste_html(driver, story_field, chunk_3)
-            print("--- ⏳ انتظار معالجة الصورة في الكتلة الثالثة...")
-            time.sleep(10)
+        # --- [الحل هنا] حلقة تكرارية تضمن الترتيب الصحيح ---
+        for i, part in enumerate(content_parts):
+            # 1. لصق الجزء النصي
+            if part.strip():
+                print(f"--- لصق الجزء النصي رقم {i + 1}...")
+                paste_html(driver, driver.switch_to.active_element, part)
 
-        print("--- ✅ انتهت عملية اللصق بالكتل.")
+            # 2. التحقق إذا كان هناك صورة يجب إدراجها بعد هذا الجزء
+            if i < len(image_htmls):
+                print(f"--- التحضير لإدراج الصورة رقم {i + 1}...")
+                # 3. الانتقال إلى نهاية المحتوى بالكامل (الخطوة الحاسمة)
+                driver.switch_to.active_element.send_keys(Keys.CONTROL, Keys.END)
+                time.sleep(1)
+                
+                # 4. إنشاء سطر جديد فارغ للصورة
+                driver.switch_to.active_element.send_keys(Keys.ENTER)
+                time.sleep(1)
 
-        # ... (باقي خطوات النشر تبقى كما هي)
+                # 5. لصق الصورة في السطر الجديد
+                print(f"--- لصق الصورة رقم {i + 1}...")
+                paste_html(driver, driver.switch_to.active_element, image_htmls[i])
+                print(f"--- ⏳ انتظار معالجة الصورة رقم {i + 1}...")
+                time.sleep(8)
+        
+        print("--- ✅ انتهت عملية اللصق بنجاح وبالترتيب الصحيح.")
+
+        # --- باقي الخطوات تبقى كما هي ---
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
@@ -222,9 +218,7 @@ def main():
                 tags_input.send_keys(Keys.ENTER)
                 time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
-        else:
-            print("--- لا توجد وسوم لإضافتها.")
-            
+        
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         time.sleep(2)
@@ -233,7 +227,7 @@ def main():
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح تام! 🎉🎉🎉")
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
