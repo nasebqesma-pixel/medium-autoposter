@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup # --- أضفنا مكتبة جديدة لتحلي�
 # --- برمجة ahmed si ---
 
 # ---   غيير فقط اسم موقع بدون تغيير feed       ---
-RSS_URL = "https://grandmabites.com/feed"
+RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 
 def get_posted_links():
@@ -140,7 +140,7 @@ def main():
         original_link = post_to_publish.link
         # --- يمكنك تخصيص هذه الرسالة ---
         call_to_action = "Love this sneak peek? 🌟 **Continue reading the full recipe, including step-by-step photos and tips, on our main blog.**"
-        link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Click here to visit grandmabites.com</a>.</em></p>'
+        link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Click here to visit Fastyummyfood.com</a>.</em></p>'
         
         # تجميع المحتوى النهائي للنشر
         full_html_content = image_html + intro_content + link_html
