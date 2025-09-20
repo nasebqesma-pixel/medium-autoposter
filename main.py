@@ -17,9 +17,9 @@ from selenium_stealth import stealth
 import shutil
 import base64
 from PIL import Image
-import tempfile # <-- *** الإضافة الجديدة ***
+import tempfile
 
-# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v24.2) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي بواسطة Gemini v24.2) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -128,7 +128,7 @@ def copy_image_to_clipboard(driver, image_path):
         print(f"!!! حدث خطأ أثناء نسخ الصورة للحافظة: {e}")
         return False
 
-def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
+def rewrite_content_with_gemini(title, content_html, original_link):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
@@ -155,7 +155,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     2. `<!-- IMAGE 2 PLACEHOLDER -->` in a relevant middle section.
     """
 
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}'
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     raw_text = ""
@@ -164,7 +164,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response.raise_for_status()
         response_json = response.json()
         
-        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
@@ -186,20 +186,17 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.2 (إصلاح مشكلة الجلسة) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.3 (إصلاح محرر Medium) ---")
     
-    # --- *** الإصلاح الجديد: إنشاء مجلد بيانات مستخدم مؤقت *** ---
     user_data_dir = tempfile.mkdtemp()
     print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless") # موصى به للبيئات الآلية
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu") # موصى به للبيئات الآلية
+    options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
-    
-    # --- *** الإصلاح الجديد: استخدام المجلد المؤقت *** ---
     options.add_argument(f"--user-data-dir={user_data_dir}")
     
     print("--- 🔒 منح إذن الوصول إلى الحافظة للمتصفح...")
@@ -219,6 +216,8 @@ def main():
             return
         
         original_title, original_link = post_to_publish.title, post_to_publish.link
+        
+        # كشط الصور يتم بعد إعداد المتصفح الرئيسي
         scraped_image_urls = scrape_images_from_article(original_link, driver)
         
         original_content_html = ""
@@ -227,7 +226,7 @@ def main():
         elif 'summary' in post_to_publish:
             original_content_html = post_to_publish.summary
             
-        rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
+        rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link)
         
         if not rewritten_data: 
             print("!!! توقف التنفيذ بسبب فشل Gemini في إنشاء المحتوى.")
@@ -237,8 +236,11 @@ def main():
         
         png_image_paths = []
         if scraped_image_urls:
+            # استخدام مجلد مؤقت للصور أيضًا
+            temp_image_dir = tempfile.mkdtemp()
+            print(f"--- 🖼️ استخدام مجلد مؤقت للصور: {temp_image_dir}")
             for i, url in enumerate(scraped_image_urls):
-                jpg_path = f"temp_image_{i}.jpg"
+                jpg_path = os.path.join(temp_image_dir, f"temp_image_{i}.jpg")
                 abs_jpg_path = download_image(url, jpg_path)
                 if abs_jpg_path:
                     image_paths_to_delete.append(abs_jpg_path)
@@ -263,25 +265,41 @@ def main():
         actions = ActionChains(driver)
         
         print("--- 4. كتابة العنوان والمحتوى...")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'textarea[placeholder="Title"]')))
+        
+        # --- *** الإصلاح الرئيسي هنا *** ---
+        # 1. انتظر حتى يتم تحميل منطقة الكتابة الرئيسية
+        editor_container_selector = "div.is-showEditor"
+        print(f"--- انتظار تحميل محرر المقالات الرئيسي باستخدام المحدد: '{editor_container_selector}'")
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, editor_container_selector)))
+        
+        # 2. ابحث عن حقل العنوان والمحتوى باستخدام مُحددات أكثر استقراراً
+        title_field_selector = 'h1[data-testid="editorTitle"]'
+        content_field_selector = 'p[data-testid="editorParagraph"]'
+        print(f"--- البحث عن حقل العنوان: '{title_field_selector}'")
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, title_field_selector)))
+        
+        print(f"--- البحث عن حقل المحتوى: '{content_field_selector}'")
+        content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, content_field_selector)))
+
+        # 3. التفاعل مع الحقول
         title_field.click()
         actions.send_keys(final_title).perform()
         
-        content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')))
         content_field.click()
         
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
         for i, part in enumerate(parts):
             if part.strip():
+                print(f"--- 📋 لصق الجزء رقم {i+1} من المحتوى...")
                 js_paste_script = "const html = arguments; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_paste_script, part)
                 actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-                time.sleep(2)
+                time.sleep(2) # انتظر قليلاً لضمان اكتمال اللصق
                 
             if i < len(png_image_paths):
                 print(f"--- ⬆️ جاري لصق الصورة رقم {i+1} (PNG)...")
-                actions.send_keys(Keys.ENTER).perform()
+                actions.send_keys(Keys.ENTER).perform() # سطر جديد قبل الصورة
                 
                 if copy_image_to_clipboard(driver, png_image_paths[i]):
                     time.sleep(1)
@@ -291,12 +309,13 @@ def main():
                     upload_wait = WebDriverWait(driver, 60)
                     try:
                         expected_images = i + 1
+                        # انتظر حتى يظهر العدد الصحيح من الصور التي تم رفعها
                         upload_wait.until(
-                            lambda d: len(d.find_elements(By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')) >= expected_images
+                            lambda d: len(d.find_elements(By.CSS_SELECTOR, 'figure img[src^="https://miro.medium.com"]')) >= expected_images
                         )
                         print(f"--- ✅ الصورة رقم {expected_images} ظهرت في المحرر.")
                     except TimeoutException:
-                        print(f"!!! ⚠️ لم يتم التأكد من ظهور الصورة رقم {i+1}.")
+                        print(f"!!! ⚠️ لم يتم التأكد من ظهور الصورة رقم {i+1} في الوقت المحدد.")
                     
                     actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
                     time.sleep(1)
@@ -312,7 +331,8 @@ def main():
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic"]')))
+            # المُحدد الخاص بإدخال الوسوم قد يتغير أيضاً، هذا أكثر استقراراً
+            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic…"], input[aria-label="Add a topic"]')))
             tags_input.click()
             for tag in final_tags:
                 tags_input.send_keys(tag)
@@ -342,16 +362,21 @@ def main():
         raise e
     finally:
         print("--- 🧹 جاري تنظيف الملفات المؤقتة...")
+        # حذف الصور الفردية
         for path in image_paths_to_delete:
             try:
                 os.remove(path)
                 print(f"--- تم حذف: {path}")
             except OSError as e:
                 print(f"!!! خطأ أثناء حذف الملف {path}: {e}")
+        # حذف مجلد الصور المؤقت إذا تم إنشاؤه
+        if 'temp_image_dir' in locals() and os.path.exists(temp_image_dir):
+            shutil.rmtree(temp_image_dir, ignore_errors=True)
+            print(f"--- تم حذف مجلد الصور المؤقت: {temp_image_dir}")
+            
         if 'driver' in locals() and driver:
             driver.quit()
         
-        # --- *** الإصلاح الجديد: حذف المجلد المؤقت *** ---
         if 'user_data_dir' in locals() and os.path.exists(user_data_dir):
             shutil.rmtree(user_data_dir, ignore_errors=True)
             print(f"--- تم حذف مجلد البيانات المؤقت: {user_data_dir}")
