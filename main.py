@@ -155,19 +155,20 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     2. `<!-- IMAGE 2 PLACEHOLDER -->` in a relevant middle section.
     """
 
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}'
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     raw_text = ""
-    # --- *** الإصلاح الرئيسي هنا: إعادة بناء كتلة try/except بالكامل *** ---
+    
+    # --- *** الإصلاح الرئيسي هنا: بنية Try/Except صحيحة *** ---
     try:
         response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
         response.raise_for_status()
         response_json = response.json()
         
-        # الوصول الصحيح إلى بنية JSON الخاصة بـ Gemini API
-        raw_text = response_json['candidates']['content']['parts']['text']
-
+        # الوصول الصحيح إلى بنية بيانات Gemini باستخدام الفهرسة الرقمية
+raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        # استخراج JSON من الرد
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(1)
@@ -180,15 +181,20 @@ def rewrite_content_with_gemini(title, content_html, original_link):
 
         result = json.loads(clean_json_str)
         print("--- ✅ تم استلام مقال كامل من Gemini.")
-        return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
+        return {
+            "title": result.get("new_title", title),
+            "content": result.get("new_html_content", content_html),
+            "tags": result.get("tags", []),
+            "alt_texts": result.get("alt_texts", [])
+        }
 
-    except (requests.exceptions.RequestException, KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
+    except Exception as e:
         print(f"!!! Gemini Error: {e}")
         print(f"--- Raw Gemini Response: ---\n{raw_text}\n--------------------------")
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.5 (إصلاح شامل) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.5 (إصلاح نهائي) ---")
     
     user_data_dir = tempfile.mkdtemp()
     print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
@@ -223,6 +229,7 @@ def main():
         scraped_image_urls = scrape_images_from_article(original_link, driver)
         
         original_content_html = ""
+        # تصحيح: feedparser يضع المحتوى في قائمة
         if 'content' in post_to_publish and post_to_publish.content:
             original_content_html = post_to_publish.content.value
         elif 'summary' in post_to_publish:
@@ -268,15 +275,12 @@ def main():
         print("--- 4. كتابة العنوان والمحتوى...")
         
         editor_container_selector = "div.is-showEditor"
-        print(f"--- انتظار تحميل محرر المقالات الرئيسي باستخدام المحدد: '{editor_container_selector}'")
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, editor_container_selector)))
         
         title_field_selector = 'h1[data-testid="editorTitle"]'
         content_field_selector = 'p[data-testid="editorParagraph"]'
-        print(f"--- البحث عن حقل العنوان: '{title_field_selector}'")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, title_field_selector)))
         
-        print(f"--- البحث عن حقل المحتوى: '{content_field_selector}'")
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, title_field_selector)))
         content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, content_field_selector)))
 
         title_field.click()
@@ -288,28 +292,23 @@ def main():
         
         for i, part in enumerate(parts):
             if part.strip():
-                print(f"--- 📋 لصق الجزء رقم {i+1} من المحتوى...")
                 js_paste_script = "const html = arguments; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_paste_script, part)
                 actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
                 time.sleep(2)
                 
             if i < len(png_image_paths):
-                print(f"--- ⬆️ جاري لصق الصورة رقم {i+1} (PNG)...")
                 actions.send_keys(Keys.ENTER).perform()
-                
                 if copy_image_to_clipboard(driver, png_image_paths[i]):
                     time.sleep(1)
                     actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
                     
-                    print("--- ⏳ انتظار اكتمال رفع الصورة...")
                     upload_wait = WebDriverWait(driver, 60)
                     try:
                         expected_images = i + 1
                         upload_wait.until(
                             lambda d: len(d.find_elements(By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')) >= expected_images
                         )
-                        print(f"--- ✅ الصورة رقم {expected_images} ظهرت في المحرر.")
                     except TimeoutException:
                         print(f"!!! ⚠️ لم يتم التأكد من ظهور الصورة رقم {i+1} في الوقت المحدد.")
                     
