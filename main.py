@@ -128,7 +128,7 @@ def copy_image_to_clipboard(driver, image_path):
         print(f"!!! حدث خطأ أثناء نسخ الصورة للحافظة: {e}")
         return False
 
-def rewrite_content_with_gemini(title, content_html, original_link):
+def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
@@ -155,7 +155,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     2. `<!-- IMAGE 2 PLACEHOLDER -->` in a relevant middle section.
     """
 
-    api_url = f'https://generativelenlanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     raw_text = ""
@@ -164,13 +164,12 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         response.raise_for_status()
         response_json = response.json()
         
-        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(1)
         else:
-            # Fallback for responses that are just the JSON object without markdown
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if json_match:
                 clean_json_str = json_match.group(0)
@@ -187,13 +186,13 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.3 (إصلاح محددات Medium) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.3 (إصلاح محددات المحرر) ---")
     
     user_data_dir = tempfile.mkdtemp()
     print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+    # options.add_argument("--headless") # قم بإلغاء التعليق عند النشر النهائي
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
@@ -225,7 +224,7 @@ def main():
         elif 'summary' in post_to_publish:
             original_content_html = post_to_publish.summary
             
-        rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link)
+        rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
         
         if not rewritten_data: 
             print("!!! توقف التنفيذ بسبب فشل Gemini في إنشاء المحتوى.")
@@ -236,8 +235,7 @@ def main():
         png_image_paths = []
         if scraped_image_urls:
             for i, url in enumerate(scraped_image_urls):
-                # استخدم مجلد مؤقت للصور أيضاً
-                jpg_path = os.path.join(tempfile.gettempdir(), f"temp_image_{i}.jpg")
+                jpg_path = f"temp_image_{i}.jpg"
                 abs_jpg_path = download_image(url, jpg_path)
                 if abs_jpg_path:
                     image_paths_to_delete.append(abs_jpg_path)
@@ -258,32 +256,23 @@ def main():
         
         print("--- 3. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
-        
-        # *** الإصلاح الرئيسي هنا: زيادة وقت الانتظار واستخدام محددات أكثر مرونة ***
-        wait = WebDriverWait(driver, 40) # زيادة المهلة إلى 40 ثانية
+        wait = WebDriverWait(driver, 30)
         actions = ActionChains(driver)
         
         print("--- 4. كتابة العنوان والمحتوى...")
-        # استخدام محدد أكثر عمومية وموثوقية لحقل العنوان
-        title_selector = 'textarea[placeholder="Title"]'
-        print(f"--- في انتظار ظهور حقل العنوان باستخدام المحدد: '{title_selector}'")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, title_selector)))
-        
-        # استخدام النقر عبر JavaScript لتجنب أي عناصر قد تغطي الحقل
-        driver.execute_script("arguments.click();", title_field)
+        # *** --- الإصلاح الرئيسي هنا: استخدام المحدد الصحيح من الكود القديم --- ***
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
+        title_field.click()
         actions.send_keys(final_title).perform()
         
-        # استخدام محدد أكثر عمومية للمحتوى
-        content_selector = 'p[data-placeholder="Tell your story…"]'
-        print(f"--- في انتظار ظهور حقل المحتوى باستخدام المحدد: '{content_selector}'")
-        content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, content_selector)))
-        driver.execute_script("arguments.click();", content_field)
+        # *** --- الإصلاح الرئيسي هنا: استخدام المحدد الصحيح من الكود القديم --- ***
+        content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        content_field.click()
         
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
         for i, part in enumerate(parts):
             if part.strip():
-                # لصق كود HTML
                 js_paste_script = "const html = arguments; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_paste_script, part)
                 actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
@@ -291,22 +280,22 @@ def main():
                 
             if i < len(png_image_paths):
                 print(f"--- ⬆️ جاري لصق الصورة رقم {i+1} (PNG)...")
-                actions.send_keys(Keys.ENTER).perform() # سطر جديد قبل الصورة
+                actions.send_keys(Keys.ENTER).perform()
                 
                 if copy_image_to_clipboard(driver, png_image_paths[i]):
                     time.sleep(1)
                     actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
                     
                     print("--- ⏳ انتظار اكتمال رفع الصورة...")
-                    # انتظار ظهور الصورة المرفوعة في المحرر
+                    upload_wait = WebDriverWait(driver, 60)
                     try:
                         expected_images = i + 1
-                        WebDriverWait(driver, 60).until(
+                        upload_wait.until(
                             lambda d: len(d.find_elements(By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')) >= expected_images
                         )
                         print(f"--- ✅ الصورة رقم {expected_images} ظهرت في المحرر.")
                     except TimeoutException:
-                        print(f"!!! ⚠️ لم يتم التأكد من ظهور الصورة رقم {i+1} بعد 60 ثانية.")
+                        print(f"!!! ⚠️ لم يتم التأكد من ظهور الصورة رقم {i+1}.")
                     
                     actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
                     time.sleep(1)
@@ -322,13 +311,11 @@ def main():
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic"], div[data-testid="publishTopicsInput"] input')))
-            driver.execute_script("arguments.click();", tags_input)
+            # *** --- الإصلاح الرئيسي هنا: استخدام المحدد الصحيح من الكود القديم --- ***
+            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic"], div[data-testid="publishTopicsInput"]')))
+            tags_input.click()
             for tag in final_tags:
-                tags_input.send_keys(tag)
-                time.sleep(0.5)
-                tags_input.send_keys(Keys.ENTER)
-                time.sleep(1)
+                actions.send_keys_to_element(tags_input, tag).pause(0.5).send_keys(Keys.ENTER).pause(1).perform()
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
         
         print("--- 7. إرسال أمر النشر النهائي...")
@@ -336,7 +323,7 @@ def main():
         driver.execute_script("arguments.click();", publish_now_button)
         
         print("--- 8. انتظار نهائي...")
-        time.sleep(15) # انتظار كافٍ لإتمام عملية النشر قبل إغلاق المتصفح
+        time.sleep(15)
         add_posted_link(post_to_publish.link)
         print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
 
