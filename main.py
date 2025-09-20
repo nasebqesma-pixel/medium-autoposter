@@ -19,7 +19,7 @@ import base64
 from PIL import Image
 import tempfile
 
-# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v24.2) ---
+# --- برمجة ahmed si (إصلاح مشكلة بدء الجلسة واستجابة Gemini) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -128,7 +128,7 @@ def copy_image_to_clipboard(driver, image_path):
         print(f"!!! حدث خطأ أثناء نسخ الصورة للحافظة: {e}")
         return False
 
-def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
+def rewrite_content_with_gemini(title, content_html, original_link):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
@@ -155,7 +155,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     2. `<!-- IMAGE 2 PLACEHOLDER -->` in a relevant middle section.
     """
 
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}'
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     raw_text = ""
@@ -164,12 +164,14 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response.raise_for_status()
         response_json = response.json()
         
+        # *** --- الإصلاح الرئيسي هنا: المسار الصحيح للوصول إلى النص --- ***
         raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(1)
         else:
+            # Fallback for when markdown tags are missing
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if json_match:
                 clean_json_str = json_match.group(0)
@@ -180,23 +182,26 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         print("--- ✅ تم استلام مقال كامل من Gemini.")
         return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
 
-    except Exception as e:
+    except (requests.exceptions.RequestException, KeyError, IndexError, ValueError, json.JSONDecodeError) as e:
         print(f"!!! Gemini Error: {e}")
         print(f"--- Raw Gemini Response: ---\n{raw_text}\n--------------------------")
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.3 (إصلاح محددات المحرر) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.4 (إصلاح بدء الجلسة) ---")
     
     user_data_dir = tempfile.mkdtemp()
     print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
 
     options = webdriver.ChromeOptions()
-    # options.add_argument("--headless") # قم بإلغاء التعليق عند النشر النهائي
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
+    # *** --- الإصلاح الرئيسي هنا: إضافة خيارات لزيادة الاستقرار --- ***
+    options.add_argument("--disable-extensions")
+    options.add_argument("--remote-debugging-port=9222") # استخدام 9222 أو 0
     options.add_argument(f"--user-data-dir={user_data_dir}")
     
     print("--- 🔒 منح إذن الوصول إلى الحافظة للمتصفح...")
@@ -216,19 +221,14 @@ def main():
             return
         
         original_title, original_link = post_to_publish.title, post_to_publish.link
-        scraped_image_urls = scrape_images_from_article(original_link, driver)
         
-        original_content_html = ""
-        if 'content' in post_to_publish and post_to_publish.content:
-            original_content_html = post_to_publish.content.value
-        elif 'summary' in post_to_publish:
-            original_content_html = post_to_publish.summary
-            
-        rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
+        rewritten_data = rewrite_content_with_gemini(original_title, post_to_publish.summary, original_link)
         
         if not rewritten_data: 
             print("!!! توقف التنفيذ بسبب فشل Gemini في إنشاء المحتوى.")
             return
+
+        scraped_image_urls = scrape_images_from_article(original_link, driver)
         
         final_title, generated_html_content, ai_tags = rewritten_data["title"], rewritten_data["content"], rewritten_data.get("tags", [])
         
@@ -260,12 +260,10 @@ def main():
         actions = ActionChains(driver)
         
         print("--- 4. كتابة العنوان والمحتوى...")
-        # *** --- الإصلاح الرئيسي هنا: استخدام المحدد الصحيح من الكود القديم --- ***
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         actions.send_keys(final_title).perform()
         
-        # *** --- الإصلاح الرئيسي هنا: استخدام المحدد الصحيح من الكود القديم --- ***
         content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         content_field.click()
         
@@ -311,11 +309,15 @@ def main():
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            # *** --- الإصلاح الرئيسي هنا: استخدام المحدد الصحيح من الكود القديم --- ***
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic"], div[data-testid="publishTopicsInput"]')))
+            tags_input_locator = (By.CSS_SELECTOR, 'input[aria-label="Add a topic"], div[data-testid="publishTopicsInput"]')
+            tags_input = wait.until(EC.presence_of_element_located(tags_input_locator))
             tags_input.click()
+            time.sleep(0.5)
             for tag in final_tags:
-                actions.send_keys_to_element(tags_input, tag).pause(0.5).send_keys(Keys.ENTER).pause(1).perform()
+                tags_input.send_keys(tag)
+                time.sleep(0.5)
+                tags_input.send_keys(Keys.ENTER)
+                time.sleep(1)
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
         
         print("--- 7. إرسال أمر النشر النهائي...")
