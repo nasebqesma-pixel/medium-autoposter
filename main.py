@@ -4,7 +4,6 @@ import time
 import re
 import requests
 import json
-import uuid
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -14,11 +13,21 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
+# *** التغيير الجديد هنا ***
+import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
+
 # --- برمجة ahmed si ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# *** التغيير الجديد هنا ***
+# قم بتكوين Gemini API مباشرةً
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash') # استخدام نموذج أسرع ومناسب للإنتاج
 
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
@@ -53,37 +62,35 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-def download_image(url):
-    try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        ext = url.split('.')[-1].split('?')[0].lower()
-        if ext not in ['jpg', 'jpeg', 'png', 'gif']:
-            ext = 'jpg'
-        
-        filename = f"{uuid.uuid4()}.{ext}"
-        filepath = os.path.join(os.getcwd(), filename)
-        
-        with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print(f"--- ✅ تم تنزيل الصورة بنجاح إلى: {filepath}")
-        return filepath
-    except Exception as e:
-        print(f"!!! خطأ في تنزيل الصورة من {url}: {e}")
-        return None
-
+# *** التغيير الجذري هنا ***
 def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
+    
+    # تحديد الهيكل المطلوب في ملف JSON
+    json_schema = {
+        "type": "object",
+        "properties": {
+            "new_title": {"type": "string"},
+            "new_html_content": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "alt_texts": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["new_title", "new_html_content"]
+    }
 
-    print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
+    # تعديل طلب Gemini API لطلب إخراج JSON
+    generation_config = GenerationConfig(
+        response_mime_type="application/json",
+        response_schema=json_schema
+    )
+    
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
-
+    
     **Original Data:**
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
@@ -103,30 +110,29 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     4.  **Smart Closing Method...**
     **Output Format:**
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
-    ...
     """
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
-    headers = {'Content-Type': 'application/json'}
-    data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
+    
+    print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     try:
-        response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
-        response.raise_for_status()
-        response_json = response.json()
-        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if json_match:
-            clean_json_str = json_match.group(0)
-            result = json.loads(clean_json_str)
-            print("--- ✅ تم استلام مقال كامل من Gemini.")
-            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
-        else:
-            raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
+        response = model.generate_content(prompt, generation_config=generation_config)
+        
+        # لا حاجة لتحليل النص العادي أو استخدام `re`
+        # `response.text` سيكون JSON صالحاً
+        result = json.loads(response.text)
+        
+        print("--- ✅ تم استلام مقال كامل من Gemini.")
+        return {
+            "title": result.get("new_title", title),
+            "content": result.get("new_html_content", content_html),
+            "tags": result.get("tags", []),
+            "alt_texts": result.get("alt_texts", [])
+        }
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v21.4 (مع Selenium وتنزيل الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v21.3 (مع تشخيص الصور) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -135,11 +141,10 @@ def main():
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     
+    # --- *** التحسين الجديد هنا (التشخيص) *** ---
     image_url = extract_image_url_from_entry(post_to_publish)
-    image_path = None
     if image_url:
         print(f"--- 🖼️ تم العثور على رابط الصورة: {image_url}")
-        image_path = download_image(image_url)
     else:
         print("--- ⚠️ لم يتم العثور على رابط صورة في RSS لهذا المقال.")
     
@@ -149,6 +154,7 @@ def main():
     else:
         original_content_html = post_to_publish.summary
 
+    # هنا يتم استخدام الدالة الجديدة التي تعتمد على JSON
     rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, image_url)
     
     if rewritten_data:
@@ -156,14 +162,31 @@ def main():
         generated_html_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
+        
+        full_html_content = generated_html_content
+        if image_url:
+            print("--- 🔧 جاري محاولة إدراج الصور في المحتوى...")
+            alt_text1 = ai_alt_texts[0] if len(ai_alt_texts) > 0 else "Recipe main image"
+            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed view of the recipe"
+            site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
+            caption1 = f"<em>{alt_text1} - {site_name}</em>"
+            caption2 = f"<em>{alt_text2} - {site_name}</em>"
+            image1_html = f'<figure><img src="{image_url}" alt="{alt_text1}"><figcaption>{caption1}</figcaption></figure>'
+            image2_html = f'<figure><img src="{image_url}" alt="{alt_text2}"><figcaption>{caption2}</figcaption></figure>'
+            full_html_content = full_html_content.replace("", image1_html)
+            full_html_content = full_html_content.replace("", image2_html)
+        else:
+            print("--- لا توجد صورة لإدراجها.")
     else:
         print("--- سيتم استخدام المحتوى الأصلي بسبب فشل Gemini.")
         final_title = original_title
         ai_tags = []
-        generated_html_content = original_content_html
+        image_html = f'<img src="{image_url}">' if image_url else ""
+        full_html_content = image_html + original_content_html
 
     # (بقية الكود الخاص بـ Selenium يبقى كما هو)
     # ...
+    # الكود الخاص بـ Selenium يبدأ من هنا
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
@@ -200,56 +223,16 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         
-        # تقسيم المحتوى لإدراج الصور
-        html_parts = generated_html_content.split("")
-        story_field.send_keys(html_parts[0])
-        
-        if image_path:
-            # 5.1. تحميل الصورة الأولى
-            print("--- 5.1. محاولة إدراج الصورة الأولى...")
-            time.sleep(2)
-            # النقر على زر "+"
-            plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="add-block-button"]')))
-            plus_button.click()
-            time.sleep(1)
-            # النقر على زر "إضافة صورة"
-            image_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="image-upload-button"]')))
-            image_button.click()
-            time.sleep(1)
-            # إرسال مسار الملف إلى input type="file" المخفي
-            file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
-            file_input.send_keys(image_path)
-            print("--- ✅ تم رفع الصورة الأولى. جاري الانتظار.")
-            time.sleep(10) # انتظار تحميل الصورة
-            
-        # إضافة بقية المحتوى
-        remaining_html = html_parts[1].split("")
-        story_field.send_keys(remaining_html[0])
-        
-        if image_path:
-            # 5.2. تحميل الصورة الثانية
-            print("--- 5.2. محاولة إدراج الصورة الثانية...")
-            time.sleep(2)
-            plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="add-block-button"]')))
-            plus_button.click()
-            time.sleep(1)
-            image_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="image-upload-button"]')))
-            image_button.click()
-            time.sleep(1)
-            file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
-            file_input.send_keys(image_path)
-            print("--- ✅ تم رفع الصورة الثانية. جاري الانتظار.")
-            time.sleep(10) # انتظار تحميل الصورة
-        
-        # إضافة الجزء الأخير من المحتوى
-        if len(remaining_html) > 1:
-            story_field.send_keys(remaining_html[1])
+        js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
+        driver.execute_script(js_script, full_html_content)
+        story_field.send_keys(Keys.CONTROL, 'v')
+        time.sleep(5)
 
-        print("--- 6. بدء عملية النشر...")
+        print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
 
-        print("--- 7. إضافة الوسوم المتاحة...")
+        print("--- 6. إضافة الوسوم المتاحة...")
         final_tags = ai_tags[:5] if ai_tags else []
         
         if final_tags:
@@ -264,12 +247,12 @@ def main():
         else:
             print("--- لا توجد وسوم لإضافتها.")
 
-        print("--- 8. إرسال أمر النشر النهائي...")
+        print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
 
-        print("--- 9. انتظار نهائي للسماح بمعالجة النشر...")
+        print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
 
         add_posted_link(post_to_publish.link)
@@ -282,9 +265,6 @@ def main():
         raise e
     finally:
         driver.quit()
-        # تنظيف الملف المؤقت
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
         print("--- تم إغلاق الروبوت ---")
 
 if __name__ == "__main__":
