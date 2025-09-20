@@ -15,8 +15,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium_stealth import stealth
 import shutil
+import base64
 
-# --- برمجة ahmed si (إصلاح شامل لرفع الصور بواسطة Gemini v22.9) ---
+# --- برمجة ahmed si (تم التنفيذ النهائي بفكرة النسخ واللصق بواسطة Gemini v23.0) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -54,11 +55,10 @@ def scrape_images_from_article(url, driver):
         for img in images:
             src = img.get_attribute('src')
             if src and src.startswith('http') and not "data:image" in src:
-                if src not in image_urls:
-                    image_urls.append(src)
+                if src not in image_urls: image_urls.append(src)
             if len(image_urls) == 2: break
         if image_urls: print(f"--- ✅ تم استخراج {len(image_urls)} روابط صور بنجاح.")
-        else: print("--- ⚠️ لم يتم العثور على صور قابلة للاستخراج من الصفحة.")
+        else: print("--- ⚠️ لم يتم العثور على صور قابلة للاستخراج.")
         return image_urls
     except Exception as e:
         print(f"!!! حدث خطأ أثناء كشط الصور: {e}")
@@ -78,27 +78,62 @@ def download_image(url, path):
         print(f"!!! فشل تنزيل الصورة: {e}")
         return None
 
+# --- الدالة الجديدة والمحورية: نسخ الصورة إلى حافظة المتصفح ---
+def copy_image_to_clipboard(driver, image_path):
+    print(f"--- 📋 جاري نسخ الصورة '{image_path}' إلى الحافظة...")
+    try:
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+        
+        base64_data = base64.b64encode(image_data).decode('utf-8')
+
+        js_script = """
+        async function copyImage(base64) {
+            try {
+                const byteCharacters = atob(base64);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], {type: 'image/jpeg'});
+                const item = new ClipboardItem({'image/jpeg': blob});
+                await navigator.clipboard.write([item]);
+                return true;
+            } catch (err) {
+                console.error('Failed to copy image: ', err);
+                return false;
+            }
+        }
+        return copyImage(arguments[0]);
+        """
+        result = driver.execute_script(js_script, base64_data)
+        if result:
+            print("--- ✅ تمت عملية النسخ بنجاح.")
+        else:
+            print("--- ⚠️ فشلت عملية النسخ.")
+        return result
+    except Exception as e:
+        print(f"!!! حدث خطأ أثناء نسخ الصورة للحافظة: {e}")
+        return False
+
 def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
+    # ... (محتوى الدالة يبقى كما هو)
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
-    You are a professional SEO copywriter for Medium. Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
+    You are a professional SEO copywriter for Medium. Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words).
     **Original Data:**
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
-    - Link to the full recipe: "{original_link}"
-    - Available Image URLs: "{', '.join(image_urls) if image_urls else 'None'}"
+    - Link: "{original_link}"
     **Article Requirements:**
-    1. **Article Body (HTML Format):**
-        - Write a 600-700 word article in clean HTML.
-        - **Image Placement:** Crucially, you MUST insert two image placeholders exactly as written below:
-            - `<!-- IMAGE 1 PLACEHOLDER -->` after the intro.
-            - `<!-- IMAGE 2 PLACEHOLDER -->` before the listicle section.
+    - **Body (HTML Format):** Write a 600-700 word article in clean HTML. Insert two placeholders: `<!-- IMAGE 1 PLACEHOLDER -->` and `<!-- IMAGE 2 PLACEHOLDER -->`.
     **Output Format:**
-    Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
+    Return ONLY a valid JSON object with keys: "new_title", "new_html_content", "tags", "alt_texts".
     """
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
@@ -110,17 +145,17 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
         json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if json_match:
-            clean_json_str = json_match.group(0)
-            result = json.loads(clean_json_str)
+            result = json.loads(json_match.group(0))
             print("--- ✅ تم استلام مقال كامل من Gemini.")
             return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
-        else: raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
+        else: raise ValueError("JSON not found in Gemini response.")
     except Exception as e:
-        print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
+        print(f"!!! Gemini Error: {e}")
         return None
 
+
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.9 (إصلاح شامل لرفع الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v23.0 (حل النسخ واللصق) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -135,24 +170,19 @@ def main():
     try:
         post_to_publish = get_next_post_to_publish()
         if not post_to_publish:
-            print(">>> النتيجة: لا توجد مقالات جديدة لنشرها.")
+            print(">>> النتيجة: لا توجد مقالات جديدة.")
             return
 
-        original_title = post_to_publish.title
-        original_link = post_to_publish.link
+        original_title, original_link = post_to_publish.title, post_to_publish.link
         scraped_image_urls = scrape_images_from_article(original_link, driver)
-        original_content_html = ""
-        if 'content' in post_to_publish and post_to_publish.content: original_content_html = post_to_publish.content[0].value
-        else: original_content_html = post_to_publish.summary
+        original_content_html = post_to_publish.content[0].value if 'content' in post_to_publish and post_to_publish.content else post_to_publish.summary
         rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
         
         if not rewritten_data:
              print("!!! فشل Gemini، لا يمكن المتابعة.")
              return
 
-        final_title = rewritten_data["title"]
-        generated_html_content = rewritten_data["content"]
-        ai_tags = rewritten_data.get("tags", [])
+        final_title, generated_html_content, ai_tags = rewritten_data["title"], rewritten_data["content"], rewritten_data.get("tags", [])
         
         downloaded_image_paths = []
         if scraped_image_urls:
@@ -163,8 +193,7 @@ def main():
                     downloaded_image_paths.append(abs_path)
                     image_paths_to_delete.append(abs_path)
         
-        sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
-        uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
+        sid_cookie, uid_cookie = os.environ.get("MEDIUM_SID_COOKIE"), os.environ.get("MEDIUM_UID_COOKIE")
         if not sid_cookie or not uid_cookie:
             print("!!! خطأ: لم يتم العثور على الكوكيز.")
             return
@@ -180,7 +209,7 @@ def main():
         wait = WebDriverWait(driver, 30)
         actions = ActionChains(driver)
 
-        print("--- 4. كتابة العنوان والمحتوى خطوة بخطوة...")
+        print("--- 4. كتابة العنوان والمحتوى...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         title_field.send_keys(final_title)
@@ -188,49 +217,32 @@ def main():
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
         for i, part in enumerate(parts):
-            # نحدد دائمًا الفقرة الأخيرة للعمل عليها
-            last_paragraph = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]:last-of-type')))
+            last_paragraph = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]')))[-1]
             actions.move_to_element(last_paragraph).click().perform()
 
             if part.strip():
-                js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
-                driver.execute_script(js_script, part)
+                js_paste_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
+                driver.execute_script(js_paste_script, part)
                 actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
                 time.sleep(2)
 
             if i < len(downloaded_image_paths):
-                print(f"--- ⬆️ جاري رفع الصورة رقم {i+1}...")
+                print(f"--- ⬆️ جاري لصق الصورة رقم {i+1}...")
+                actions.send_keys(Keys.ENTER).perform()
                 
-                # *** الإصلاح الشامل: إنشاء سطر جديد، وتحفيز زر الإضافة، ثم النقر ***
-                last_paragraph = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]:last-of-type')))
-                actions.move_to_element(last_paragraph).click().send_keys(Keys.ENTER).perform()
+                # --- المنهجية الجديدة ---
+                copy_image_to_clipboard(driver, downloaded_image_paths[i])
                 time.sleep(1)
+                actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
 
-                # ابحث عن الفقرة الفارغة الجديدة التي تم إنشاؤها
-                new_empty_paragraph = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]:last-of-type')))
-                
-                # حرك الماوس إليها لإجبار زر "+" على الظهور
-                actions.move_to_element(new_empty_paragraph).perform()
-                
-                plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="open-menu"]')))
-                driver.execute_script("arguments[0].click();", plus_button) # نقرة JS موثوقة
-                
-                upload_image_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="upload-image"]')))
-                driver.execute_script("arguments[0].click();", upload_image_button)
-                
-                file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
-                file_input.send_keys(downloaded_image_paths[i])
-                
-                print("--- ⏳ انتظار اكتمال رفع الصورة...")
+                print("--- ⏳ انتظار اكتمال رفع الصورة بعد اللصق...")
                 upload_wait = WebDriverWait(driver, 60)
                 try:
-                    # ننتظر ظهور الصورة رقم (i+1) في المحرر
                     upload_wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, 'figure img[src^="https://miro.medium.com"]')) > i)
                     print("--- ✅ الصورة ظهرت في المحرر.")
                 except TimeoutException:
-                    print("!!! ⚠️ لم يتم التأكد من ظهور الصورة في المحرر. سيتم المتابعة...")
+                    print("!!! ⚠️ لم يتم التأكد من ظهور الصورة. سيتم المتابعة...")
                 
-                # الخروج من حقل التسمية التوضيحية
                 actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
                 time.sleep(1)
 
@@ -240,6 +252,7 @@ def main():
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         driver.execute_script("arguments[0].click();", publish_button)
 
+        # ... (بقية الكود الخاص بالنشر يبقى كما هو)
         print("--- 6. إضافة الوسوم المتاحة...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
@@ -253,14 +266,12 @@ def main():
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
         else:
             print("--- لا توجد وسوم لإضافتها.")
-
+        
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
         driver.execute_script("arguments[0].click();", publish_now_button)
-
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
-
         add_posted_link(post_to_publish.link)
         print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
 
