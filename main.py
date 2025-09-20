@@ -15,7 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة النهائية v24 ---
+# --- برمجة ahmed si - النسخة المُحسّنة v25 ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -71,68 +71,118 @@ def make_absolute_url(url, base_url):
     # إذا كان رابط نسبي
     return urljoin(base_url, url)
 
-def scrape_article_images(article_url):
-    """كشط جميع الصور من المقال الأصلي"""
+def scrape_article_images_enhanced(article_url):
+    """كشط محسّن للصور من المقال - يبحث بطرق متعددة"""
     print(f"--- 🔍 جاري كشط الصور من: {article_url}")
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
         }
-        response = requests.get(article_url, headers=headers, timeout=15)
+        
+        response = requests.get(article_url, headers=headers, timeout=20)
         response.raise_for_status()
+        html_content = response.text
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # البحث في منطقة article
-        article = soup.find('article', class_='article')
-        if not article:
-            article = soup.find('article')
-        if not article:
-            article = soup.find('main')  # بديل آخر
-        if not article:
-            article = soup  # استخدام الصفحة كاملة
-        
-        # استخراج جميع الصور
         images = []
-        for img in article.find_all('img'):
-            # جرب مصادر مختلفة للصورة
-            src = (img.get('src') or 
-                   img.get('data-src') or 
-                   img.get('data-lazy-src') or
-                   img.get('data-original'))
-            
-            # أيضاً تحقق من srcset للحصول على أفضل جودة
-            srcset = img.get('srcset')
-            if srcset and not src:
-                # استخرج أول رابط من srcset
-                src_match = re.search(r'([^\s]+)', srcset)
-                if src_match:
-                    src = src_match.group(1)
-            
-            if src:
-                # تحويل إلى رابط مطلق
-                absolute_url = make_absolute_url(src, article_url)
-                
-                # تصفية الصور غير المرغوبة
-                if absolute_url and all(x not in absolute_url.lower() for x in ['logo', 'icon', 'avatar', 'placeholder']):
-                    # تنظيف الرابط من معاملات CDN إن وجدت
-                    clean_url = absolute_url.split('?')[0]  # إزالة query parameters
-                    clean_url = re.sub(r'/cdn-cgi/[^/]+/', '/', clean_url)  # إزالة CDN path
-                    
-                    # تأكد من أن الرابط صحيح
-                    final_url = make_absolute_url(clean_url, article_url)
-                    
-                    if final_url and final_url not in images:
-                        images.append(final_url)
-                        print(f"    ✓ صورة: {final_url[:60]}...")
         
-        print(f"--- ✅ تم العثور على {len(images)} صورة في المقال")
-        return images
+        # الطريقة 1: البحث بـ regex عن روابط الصور مباشرة
+        print("    🔎 البحث عن روابط الصور بـ regex...")
+        
+        # البحث عن أي رابط يحتوي على /assets/images/
+        pattern1 = r'["\']([^"\']*?/assets/images/[^"\']+\.(?:jpg|jpeg|png|gif|webp))["\']'
+        matches1 = re.findall(pattern1, html_content, re.IGNORECASE)
+        for match in matches1:
+            clean_url = match.split('?')[0]  # إزالة query parameters
+            absolute_url = make_absolute_url(clean_url, article_url)
+            if absolute_url and absolute_url not in images:
+                images.append(absolute_url)
+                print(f"    ✓ وجدت صورة (regex): {absolute_url[:60]}...")
+        
+        # البحث عن صور في src أو data-src أو srcset
+        pattern2 = r'(?:src|data-src|data-lazy-src|data-original)=["\']([^"\']+\.(?:jpg|jpeg|png|gif|webp))["\']'
+        matches2 = re.findall(pattern2, html_content, re.IGNORECASE)
+        for match in matches2:
+            if '/assets/images/' in match or 'fastyummyfood' in match.lower():
+                clean_url = match.split('?')[0]
+                absolute_url = make_absolute_url(clean_url, article_url)
+                if absolute_url and absolute_url not in images:
+                    images.append(absolute_url)
+                    print(f"    ✓ وجدت صورة (src): {absolute_url[:60]}...")
+        
+        # البحث في srcset
+        pattern3 = r'srcset=["\']([^"\']+)["\']'
+        srcset_matches = re.findall(pattern3, html_content, re.IGNORECASE)
+        for srcset in srcset_matches:
+            # استخراج كل الروابط من srcset
+            urls_in_srcset = re.findall(r'([^\s,]+\.(?:jpg|jpeg|png|gif|webp))', srcset, re.IGNORECASE)
+            for url in urls_in_srcset:
+                if '/assets/images/' in url or 'fastyummyfood' in url.lower():
+                    clean_url = url.split('?')[0]
+                    absolute_url = make_absolute_url(clean_url, article_url)
+                    if absolute_url and absolute_url not in images:
+                        images.append(absolute_url)
+                        print(f"    ✓ وجدت صورة (srcset): {absolute_url[:60]}...")
+        
+        # الطريقة 2: استخدام BeautifulSoup كخيار إضافي
+        if len(images) < 2:
+            print("    🔎 محاولة إضافية بـ BeautifulSoup...")
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # البحث في كل الصفحة
+            for tag in soup.find_all(['img', 'source', 'picture']):
+                # جرب كل الخصائص الممكنة
+                possible_attrs = ['src', 'data-src', 'data-lazy-src', 'data-original', 
+                                'data-srcset', 'srcset', 'data-image', 'data-bg']
+                
+                for attr in possible_attrs:
+                    value = tag.get(attr)
+                    if value:
+                        # إذا كان srcset، استخرج أول رابط
+                        if 'srcset' in attr:
+                            first_url = re.search(r'([^\s,]+)', value)
+                            if first_url:
+                                value = first_url.group(1)
+                        
+                        # تحقق من أن الرابط صورة
+                        if any(ext in value.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                            clean_url = value.split('?')[0]
+                            absolute_url = make_absolute_url(clean_url, article_url)
+                            if absolute_url and absolute_url not in images:
+                                images.append(absolute_url)
+                                print(f"    ✓ وجدت صورة (soup): {absolute_url[:60]}...")
+        
+        # الطريقة 3: البحث عن أي رابط يشبه رابط صورة
+        if len(images) < 2:
+            print("    🔎 البحث الشامل عن أي روابط صور...")
+            # البحث عن أي شيء يشبه رابط صورة
+            all_image_pattern = r'https?://[^\s"\'<>]+\.(?:jpg|jpeg|png|gif|webp)'
+            all_matches = re.findall(all_image_pattern, html_content, re.IGNORECASE)
+            for match in all_matches:
+                if 'fastyummyfood' in match.lower() and match not in images:
+                    images.append(match)
+                    print(f"    ✓ وجدت صورة (عام): {match[:60]}...")
+                    if len(images) >= 5:  # حد أقصى 5 صور
+                        break
+        
+        # إزالة التكرارات مع الحفاظ على الترتيب
+        unique_images = []
+        seen = set()
+        for img in images:
+            if img not in seen:
+                unique_images.append(img)
+                seen.add(img)
+        
+        print(f"--- ✅ تم العثور على {len(unique_images)} صورة فريدة في المقال")
+        return unique_images
         
     except Exception as e:
         print(f"--- ⚠️ فشل كشط الصور: {e}")
@@ -140,33 +190,31 @@ def scrape_article_images(article_url):
 
 def get_best_images_for_article(article_url, rss_image=None):
     """الحصول على أفضل صورتين للمقال"""
-    scraped_images = scrape_article_images(article_url)
+    # استخدام الدالة المحسنة للكشط
+    scraped_images = scrape_article_images_enhanced(article_url)
     
     all_images = []
     
-    # إضافة صورة RSS إن وجدت
-    if rss_image:
-        all_images.append(rss_image)
-    
-    # إضافة الصور المكشوطة
+    # إضافة الصور المكشوطة أولاً (لها الأولوية)
     all_images.extend(scraped_images)
     
-    # إزالة التكرارات
-    unique_images = []
-    seen = set()
-    for img in all_images:
-        if img not in seen:
-            unique_images.append(img)
-            seen.add(img)
+    # إضافة صورة RSS كخيار احتياطي
+    if rss_image and rss_image not in all_images:
+        all_images.append(rss_image)
     
     # اختيار صورتين مختلفتين
-    if len(unique_images) >= 2:
-        image1 = unique_images[0]
+    if len(all_images) >= 2:
+        image1 = all_images[0]
         # محاولة الحصول على صورة مختلفة للموضع الثاني
-        image2 = unique_images[min(2, len(unique_images)-1)] if len(unique_images) > 2 else unique_images[1]
-    elif len(unique_images) == 1:
-        image1 = image2 = unique_images[0]
+        if len(all_images) >= 3:
+            image2 = all_images[2]  # تخطي الصورة الثانية للتنوع
+        else:
+            image2 = all_images[1]
+    elif len(all_images) == 1:
+        # إذا وجدنا صورة واحدة فقط، استخدمها مرتين
+        image1 = image2 = all_images[0]
     else:
+        # لا توجد صور على الإطلاق
         image1 = image2 = None
     
     return image1, image2
@@ -179,7 +227,6 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     
-    # استخدام """ بدلاً من f-string لتجنب مشكلة الأقواس
     prompt = """
     You are a professional SEO copywriter for Medium.
     Your task is to rewrite a recipe article for maximum engagement and SEO.
@@ -252,19 +299,20 @@ def prepare_html_with_multiple_images(content_html, image1, image2, original_lin
     
     # إعداد HTML للصورة الثانية  
     if image2:
+        # استخدام وصف مختلف إذا كانت نفس الصورة
+        if image2 == image1:
+            caption2 = "Another view of this delicious recipe"
+        else:
+            caption2 = "The delicious final result!"
         image2_html = f'<img src="{image2}" alt="Final dish">'
-        image2_with_caption = f'{image2_html}<p><em>The delicious final result!</em></p>'
+        image2_with_caption = f'{image2_html}<p><em>{caption2}</em></p>'
     else:
         image2_with_caption = ""
     
-    # استبدال العلامات (جرب عدة احتمالات)
+    # استبدال العلامات
     placeholders = [
         ("INSERT_IMAGE_1_HERE", image1_with_caption),
         ("INSERT_IMAGE_2_HERE", image2_with_caption),
-        ("{IMAGE_1_HERE}", image1_with_caption),
-        ("{IMAGE_2_HERE}", image2_with_caption),
-        ("{{IMAGE_1_HERE}}", image1_with_caption),
-        ("{{IMAGE_2_HERE}}", image2_with_caption)
     ]
     
     for placeholder, replacement in placeholders:
@@ -272,29 +320,27 @@ def prepare_html_with_multiple_images(content_html, image1, image2, original_lin
             content_html = content_html.replace(placeholder, replacement)
             print(f"    ✓ تم استبدال: {placeholder}")
     
-    # إذا لم نجد أي علامات ولدينا صور، أضفها في مواضع مناسبة
-    if image1 and "img src=" not in content_html:
-        # ضع الصورة الأولى بعد أول فقرة
+    # إذا لم نجد العلامات ولدينا صور، أضفها
+    if image1 and "INSERT_IMAGE" not in content_html and "<img" not in content_html:
+        print("    ⚠️ لم أجد العلامات، سأضع الصور في مواضع تلقائية")
         if "</p>" in content_html:
             first_p_end = content_html.find("</p>") + 4
             content_html = content_html[:first_p_end] + image1_with_caption + content_html[first_p_end:]
         
-        # ضع الصورة الثانية في المنتصف
         if image2 and image2 != image1:
             mid_point = len(content_html) // 2
-            # ابحث عن أقرب نهاية فقرة
             next_p = content_html.find("</p>", mid_point)
             if next_p != -1:
                 content_html = content_html[:next_p+4] + image2_with_caption + content_html[next_p+4:]
     
     # إضافة رابط المصدر
     site_name = "Fastyummyfood.com"
-    call_to_action = f'<br><p><strong>For the complete recipe with detailed instructions and more tips, visit <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
+    call_to_action = f'<br><p><strong>For the complete recipe with detailed instructions, visit <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
     
     return content_html + call_to_action
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24 (النسخة النهائية) ---")
+    print("--- بدء تشغيل الروبوت الناشر v25 (كشط محسّن للصور) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -305,14 +351,16 @@ def main():
     
     # استخراج صورة RSS الأساسية
     rss_image = extract_image_url_from_entry(post_to_publish)
+    if rss_image:
+        print(f"--- 📷 صورة RSS: {rss_image[:80]}...")
     
     # الحصول على أفضل صورتين من المقال
     image1, image2 = get_best_images_for_article(original_link, rss_image)
     
     if image1:
-        print(f"--- 🖼️ الصورة الأولى: {image1[:80]}...")
+        print(f"--- 🖼️ الصورة الأولى للنشر: {image1[:80]}...")
     if image2:
-        print(f"--- 🖼️ الصورة الثانية: {image2[:80]}...")
+        print(f"--- 🖼️ الصورة الثانية للنشر: {image2[:80]}...")
     
     if not image1 and not image2:
         print("--- ⚠️ لم يتم العثور على أي صور!")
@@ -334,7 +382,7 @@ def main():
         ai_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         
-        # إعداد المحتوى النهائي مع الصور المتعددة
+        # إعداد المحتوى النهائي مع الصور
         full_html_content = prepare_html_with_multiple_images(
             ai_content, image1, image2, original_link
         )
@@ -355,7 +403,7 @@ def main():
         else:
             image2_html = ""
         
-        call_to_action = "For the full recipe, visit us at"
+        call_to_action = "For the full recipe, visit"
         link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
         full_html_content = image1_html + original_content_html + image2_html + link_html
 
@@ -421,7 +469,7 @@ def main():
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
         
-        # انتظار أطول لرفع صورتين
+        # انتظار أطول لرفع الصور
         print("--- ⏳ انتظار رفع الصور على Medium...")
         time.sleep(12)
         
