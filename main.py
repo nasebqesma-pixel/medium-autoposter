@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si (تم التصحيح بدقة حسب التعليمات بواسطة Gemini v22.4) ---
+# --- برمجة ahmed si (تم التعديل بدقة حسب التعليمات بواسطة Gemini v22.5) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -44,7 +44,11 @@ def scrape_images_from_article(url, driver):
     try:
         driver.get(url)
         wait = WebDriverWait(driver, 20)
-        content_area = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article, .post-content, .entry-content, main")))
+        
+        # --- *** التصحيح: استخدام المحدد الدقيق الذي طلبته *** ---
+        print("--- البحث عن منطقة المحتوى باستخدام المحدد 'article.article'...")
+        content_area = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.article")))
+        
         images = content_area.find_elements(By.TAG_NAME, "img")
         print(f"--- تم العثور على {len(images)} صورة في منطقة المحتوى.")
         for img in images:
@@ -95,7 +99,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
     ...
     """
-    # --- *** التصحيح: استخدام النموذج المحدد gemini-2.0-flash بالضبط كما طُلب *** ---
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
@@ -117,7 +120,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.4 (تصحيح نموذج Gemini) ---")
+    print("--- بدء تشغيل الروبوت الناشر v22.5 (تخصيص كشط الصور) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
