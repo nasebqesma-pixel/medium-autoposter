@@ -154,7 +154,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     2. `<!-- IMAGE 2 PLACEHOLDER -->` in a relevant middle section.
     """
 
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     raw_text = ""
@@ -163,8 +163,8 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response.raise_for_status()
         response_json = response.json()
         
-        # --- *** الإصلاح النهائي والدقيق *** ---
-        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        # --- *** الإصلاح الأول: طريقة تحليل استجابة Gemini *** ---
+        raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
@@ -186,10 +186,10 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.0 (إصلاح نهائي لتحليل JSON) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.1 (إصلاحات شاملة) ---")
     
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+    # options.add_argument("--headless") # قم بإلغاء التعليق عند التشغيل النهائي
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
@@ -205,16 +205,17 @@ def main():
     image_paths_to_delete = []
     try:
         post_to_publish = get_next_post_to_publish()
-        if not post_to_publish: return
+        if not post_to_publish: 
+            print("--- لا توجد مقالات جديدة لنشرها.")
+            return
         
         original_title, original_link = post_to_publish.title, post_to_publish.link
         scraped_image_urls = scrape_images_from_article(original_link, driver)
         
-        # --- استعادة الطريقة الصحيحة للحصول على المحتوى ---
         original_content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
             original_content_html = post_to_publish.content.value
-        else:
+        elif 'summary' in post_to_publish:
             original_content_html = post_to_publish.summary
             
         rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
@@ -238,7 +239,9 @@ def main():
                         image_paths_to_delete.append(png_path)
         
         sid_cookie, uid_cookie = os.environ.get("MEDIUM_SID_COOKIE"), os.environ.get("MEDIUM_UID_COOKIE")
-        if not sid_cookie or not uid_cookie: return
+        if not sid_cookie or not uid_cookie: 
+            print("!!! لم يتم العثور على الكوكيز الخاصة بـ Medium.")
+            return
         
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
@@ -251,16 +254,16 @@ def main():
         actions = ActionChains(driver)
         
         print("--- 4. كتابة العنوان والمحتوى...")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'textarea[placeholder="Title"]')))
         title_field.click()
-        title_field.send_keys(final_title)
+        actions.send_keys(final_title).perform()
+        
+        content_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-placeholder="Tell your story…"]')))
+        content_field.click()
         
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
         for i, part in enumerate(parts):
-            last_paragraph = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]')))[-1]
-            actions.move_to_element(last_paragraph).click().perform()
-            
             if part.strip():
                 js_paste_script = "const html = arguments; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_paste_script, part)
@@ -278,10 +281,14 @@ def main():
                     print("--- ⏳ انتظار اكتمال رفع الصورة...")
                     upload_wait = WebDriverWait(driver, 60)
                     try:
-                        upload_wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, 'figure img[src^="https://miro.medium.com"]')) > i)
-                        print("--- ✅ الصورة ظهرت في المحرر.")
+                        # انتظار حتى يظهر عدد الصور المتوقع في المحرر
+                        expected_images = i + 1
+                        upload_wait.until(
+                            lambda d: len(d.find_elements(By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')) >= expected_images
+                        )
+                        print(f"--- ✅ الصورة رقم {expected_images} ظهرت في المحرر.")
                     except TimeoutException:
-                        print("!!! ⚠️ لم يتم التأكد من ظهور الصورة.")
+                        print(f"!!! ⚠️ لم يتم التأكد من ظهور الصورة رقم {i+1}.")
                     
                     actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
                     time.sleep(1)
@@ -292,11 +299,13 @@ def main():
         
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-driver.execute_script("arguments[0].click();", publish_button)
+        # --- *** الإصلاح الثاني: طريقة النقر بـ JavaScript (الزر الأول) *** ---
+        driver.execute_script("arguments.click();", publish_button)
+        
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
+            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic"]')))
             tags_input.click()
             for tag in final_tags:
                 tags_input.send_keys(tag)
@@ -306,8 +315,10 @@ driver.execute_script("arguments[0].click();", publish_button)
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
         
         print("--- 7. إرسال أمر النشر النهائي...")
-       publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-driver.execute_script("arguments[0].click();", publish_now_button)
+        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
+        # --- *** الإصلاح الثالث: طريقة النقر بـ JavaScript (الزر الثاني) *** ---
+        driver.execute_script("arguments.click();", publish_now_button)
+        
         print("--- 8. انتظار نهائي...")
         time.sleep(15)
         add_posted_link(post_to_publish.link)
@@ -315,8 +326,12 @@ driver.execute_script("arguments[0].click();", publish_now_button)
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
-        driver.save_screenshot("error_screenshot.png")
-        with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
+        screenshot_path = "error_screenshot.png"
+        page_source_path = "error_page_source.html"
+        driver.save_screenshot(screenshot_path)
+        with open(page_source_path, "w", encoding="utf-8") as f: f.write(driver.page_source)
+        print(f"--- تم حفظ لقطة الشاشة في: {screenshot_path}")
+        print(f"--- تم حفظ مصدر الصفحة في: {page_source_path}")
         raise e
     finally:
         print("--- 🧹 جاري تنظيف الملفات المؤقتة...")
@@ -326,7 +341,8 @@ driver.execute_script("arguments[0].click();", publish_now_button)
                 print(f"--- تم حذف: {path}")
             except OSError as e:
                 print(f"!!! خطأ أثناء حذف الملف {path}: {e}")
-        driver.quit()
+        if 'driver' in locals() and driver:
+            driver.quit()
         print("--- تم إغلاق الروبوت ---")
 
 if __name__ == "__main__":
