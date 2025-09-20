@@ -7,6 +7,7 @@ import json
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
@@ -15,7 +16,7 @@ from selenium.common.exceptions import TimeoutException
 from selenium_stealth import stealth
 import shutil
 
-# --- برمجة ahmed si (إصلاح خطأ العنصر القديم StaleElement بواسطة Gemini v22.8) ---
+# --- برمجة ahmed si (إصلاح شامل لرفع الصور بواسطة Gemini v22.9) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -55,12 +56,9 @@ def scrape_images_from_article(url, driver):
             if src and src.startswith('http') and not "data:image" in src:
                 if src not in image_urls:
                     image_urls.append(src)
-            if len(image_urls) == 2:
-                break
-        if image_urls:
-            print(f"--- ✅ تم استخراج {len(image_urls)} روابط صور بنجاح.")
-        else:
-            print("--- ⚠️ لم يتم العثور على صور قابلة للاستخراج من الصفحة.")
+            if len(image_urls) == 2: break
+        if image_urls: print(f"--- ✅ تم استخراج {len(image_urls)} روابط صور بنجاح.")
+        else: print("--- ⚠️ لم يتم العثور على صور قابلة للاستخراج من الصفحة.")
         return image_urls
     except Exception as e:
         print(f"!!! حدث خطأ أثناء كشط الصور: {e}")
@@ -116,14 +114,13 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
             result = json.loads(clean_json_str)
             print("--- ✅ تم استلام مقال كامل من Gemini.")
             return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
-        else:
-            raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
+        else: raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.8 (إصلاح StaleElement) ---")
+    print("--- بدء تشغيل الروبوت الناشر v22.9 (إصلاح شامل لرفع الصور) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -181,63 +178,67 @@ def main():
         driver.get("https://medium.com/new-story")
 
         wait = WebDriverWait(driver, 30)
+        actions = ActionChains(driver)
 
         print("--- 4. كتابة العنوان والمحتوى خطوة بخطوة...")
         title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
         title_field.click()
         title_field.send_keys(final_title)
 
-        story_field_initial = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field_initial.click()
-
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
         for i, part in enumerate(parts):
+            # نحدد دائمًا الفقرة الأخيرة للعمل عليها
+            last_paragraph = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]:last-of-type')))
+            actions.move_to_element(last_paragraph).click().perform()
+
             if part.strip():
                 js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_script, part)
-                # استخدام العنصر النشط للصق
-                driver.switch_to.active_element.send_keys(Keys.CONTROL, 'v')
+                actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
                 time.sleep(2)
 
             if i < len(downloaded_image_paths):
                 print(f"--- ⬆️ جاري رفع الصورة رقم {i+1}...")
                 
-                # *** الإصلاح الرئيسي: التفاعل مع العنصر النشط حاليًا ***
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
+                # *** الإصلاح الشامل: إنشاء سطر جديد، وتحفيز زر الإضافة، ثم النقر ***
+                last_paragraph = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]:last-of-type')))
+                actions.move_to_element(last_paragraph).click().send_keys(Keys.ENTER).perform()
                 time.sleep(1)
+
+                # ابحث عن الفقرة الفارغة الجديدة التي تم إنشاؤها
+                new_empty_paragraph = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid*="editorParagraph"]:last-of-type')))
+                
+                # حرك الماوس إليها لإجبار زر "+" على الظهور
+                actions.move_to_element(new_empty_paragraph).perform()
                 
                 plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="open-menu"]')))
-                plus_button.click()
-                time.sleep(1)
+                driver.execute_script("arguments[0].click();", plus_button) # نقرة JS موثوقة
                 
-                # قد يكون زر رفع الصورة داخل القائمة، لذا ننتظر ظهوره
                 upload_image_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="upload-image"]')))
-                upload_image_button.click()
-                time.sleep(1)
+                driver.execute_script("arguments[0].click();", upload_image_button)
                 
                 file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
                 file_input.send_keys(downloaded_image_paths[i])
                 
                 print("--- ⏳ انتظار اكتمال رفع الصورة...")
-                # *** التحسين: انتظار ذكي لظهور الصورة بدلاً من الوقت الثابت ***
-                upload_wait = WebDriverWait(driver, 60) # مهلة أطول للرفع
+                upload_wait = WebDriverWait(driver, 60)
                 try:
-                    # تنتظر حتى تظهر الصورة التي تم رفعها (تأتي من نطاق miro.medium.com)
-                    upload_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')))
+                    # ننتظر ظهور الصورة رقم (i+1) في المحرر
+                    upload_wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, 'figure img[src^="https://miro.medium.com"]')) > i)
                     print("--- ✅ الصورة ظهرت في المحرر.")
                 except TimeoutException:
-                    print("!!! ⚠️ لم يتم التأكد من ظهور الصورة في المحرر بعد الرفع. سيتم المتابعة على أي حال.")
+                    print("!!! ⚠️ لم يتم التأكد من ظهور الصورة في المحرر. سيتم المتابعة...")
+                
+                # الخروج من حقل التسمية التوضيحية
+                actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
+                time.sleep(1)
 
-                # الخروج من حقل التسمية التوضيحية وإنشاء سطر جديد
-                driver.switch_to.active_element.send_keys(Keys.ARROW_DOWN)
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
-        
         time.sleep(5)
 
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        publish_button.click()
+        driver.execute_script("arguments[0].click();", publish_button)
 
         print("--- 6. إضافة الوسوم المتاحة...")
         final_tags = ai_tags[:5] if ai_tags else []
@@ -255,7 +256,6 @@ def main():
 
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        time.sleep(2)
         driver.execute_script("arguments[0].click();", publish_now_button)
 
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
@@ -277,7 +277,6 @@ def main():
                 print(f"--- تم حذف: {path}")
             except OSError as e:
                 print(f"!!! خطأ أثناء حذف الملف {path}: {e}")
-        
         driver.quit()
         print("--- تم إغلاق الروبوت ---")
 
