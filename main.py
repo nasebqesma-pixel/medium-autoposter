@@ -1,4 +1,3 @@
- 
 import feedparser
 import os
 import time
@@ -53,6 +52,7 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
+# *** التعديل الرئيسي: طلب JSON بدلاً من HTML ***
 def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
@@ -73,16 +73,14 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     **Article Requirements:**
     1.  **Focus Keyword:** Identify the main focus keyword from the original title.
     2.  **Title:** Create a new title using the Hybrid Headline strategy...
-    3.  **Article Body (HTML Format):**
-        - Write a 600-700 word article in clean HTML.
-        - **Image Placement:** Crucially, you MUST insert two image placeholders exactly as written below:
-            - `` after the intro.
-            - `` before the listicle section.
-            Do not add your own `<img>` tags.
+    3.  **Article Body (JSON Format):**
+        - Write a 600-700 word article.
+        - The article body must be a plain text string without any HTML tags.
+        - **Image Placement:** Do not include image placeholders or HTML in your response. We will handle image placement separately.
         - (Other requirements remain the same...)
     4.  **Smart Closing Method...**
     **Output Format:**
-    Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
+    Return ONLY a valid JSON object with the keys: "new_title", "new_body_content", "tags", and "alt_texts".
     ...
     """
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
@@ -98,7 +96,8 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
             clean_json_str = json_match.group(0)
             result = json.loads(clean_json_str)
             print("--- ✅ تم استلام مقال كامل من Gemini.")
-            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
+            # هنا يتم إرجاع المحتوى كنص عادي، وليس HTML
+            return {"title": result.get("new_title", title), "content": result.get("new_body_content", clean_content), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
         else:
             raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
     except Exception as e:
@@ -115,7 +114,6 @@ def main():
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     
-    # --- *** التحسين الجديد هنا (التشخيص) *** ---
     image_url = extract_image_url_from_entry(post_to_publish)
     if image_url:
         print(f"--- 🖼️ تم العثور على رابط الصورة: {image_url}")
@@ -132,34 +130,23 @@ def main():
     
     if rewritten_data:
         final_title = rewritten_data["title"]
-        generated_html_content = rewritten_data["content"]
+        generated_body_content = rewritten_data["content"] # المحتوى الآن هو نص عادي
         ai_tags = rewritten_data.get("tags", [])
         ai_alt_texts = rewritten_data.get("alt_texts", [])
         
-        full_html_content = generated_html_content
-        if image_url:
-            print("--- 🔧 جاري محاولة إدراج الصور في المحتوى...")
-            alt_text1 = ai_alt_texts[0] if len(ai_alt_texts) > 0 else "Recipe main image"
-            alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed view of the recipe"
-            site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
-            caption1 = f"<em>{alt_text1} - {site_name}</em>"
-            caption2 = f"<em>{alt_text2} - {site_name}</em>"
-            image1_html = f'<figure><img src="{image_url}" alt="{alt_text1}"><figcaption>{caption1}</figcaption></figure>'
-            image2_html = f'<figure><img src="{image_url}" alt="{alt_text2}"><figcaption>{caption2}</figcaption></figure>'
-            full_html_content = full_html_content.replace("", image1_html)
-            full_html_content = full_html_content.replace("", image2_html)
-        else:
-            print("--- لا توجد صورة لإدراجها.")
+        # لا حاجة لإدراج HTML هنا، سيتم إدراج الصورة كعنصر مستقل
+        
+        full_text_content = generated_body_content
+        
+        print("--- ✅ تم تجهيز المقال بنجاح.")
+        
     else:
         print("--- سيتم استخدام المحتوى الأصلي بسبب فشل Gemini.")
         final_title = original_title
         ai_tags = []
-        image_html = f'<img src="{image_url}">' if image_url else ""
-        full_html_content = image_html + original_content_html
+        full_text_content = re.sub('<[^<]+?>', ' ', original_content_html)
 
     # (بقية الكود الخاص بـ Selenium يبقى كما هو)
-    # ...
-    # الكود الخاص بـ Selenium يبدأ من هنا
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
@@ -196,11 +183,12 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         
-        js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
-        driver.execute_script(js_script, full_html_content)
-        story_field.send_keys(Keys.CONTROL, 'v')
-        time.sleep(5)
-
+        # *** التعديل هنا: لصق المحتوى كنص عادي، ليس كـ HTML ***
+        # هذا يحل مشكلة الحجم
+        story_field.send_keys(full_text_content)
+        
+        # لا حاجة لـ js_script الآن
+        
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         publish_button.click()
@@ -222,8 +210,6 @@ def main():
 
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-            
-        # *** التعديل هنا: استخدام دالة JavaScript لتجنب الأخطاء ***
         driver.execute_script("arguments[0].click();", publish_now_button)
         
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
@@ -243,4 +229,3 @@ def main():
 
 if __name__ == "__main__":
     main()
- 
