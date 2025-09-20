@@ -18,7 +18,7 @@ import shutil
 import base64
 from PIL import Image
 
-# --- برمجة ahmed si (تم الإصلاح الجذري لتحليل Gemini JSON بواسطة Gemini v23.6) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v23.6) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -164,7 +164,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response.raise_for_status()
         response_json = response.json()
         
-        # --- *** الإصلاح الجذري والدائم: الوصول الصحيح إلى بنية الرد *** ---
+        # --- *** الإصلاح النهائي والدقيق *** ---
         raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
@@ -187,7 +187,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23.6 (الإصلاح النهائي لتحليل Gemini) ---")
+    print("--- بدء تشغيل الروبوت الناشر v23.6 (إصلاح نهائي لتحليل JSON) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -211,11 +211,12 @@ def main():
         original_title, original_link = post_to_publish.title, post_to_publish.link
         scraped_image_urls = scrape_images_from_article(original_link, driver)
         
-        # تصحيح بسيط للوصول إلى المحتوى
-        original_content_html = post_to_publish.summary
-        if hasattr(post_to_publish, 'content') and post_to_publish.content:
+        original_content_html = ""
+        if 'content' in post_to_publish and post_to_publish.content:
             original_content_html = post_to_publish.content.value
-
+        else:
+            original_content_html = post_to_publish.summary
+            
         rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
         
         if not rewritten_data: 
