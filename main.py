@@ -14,7 +14,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 import shutil
 
-# --- برمجة ahmed si (تم التحديث لرفع الصور مباشرة بواسطة Gemini v22.6) ---
+# --- برمجة ahmed si (تم الإصلاح لمحاكاة رفع الصور بشكل صحيح بواسطة Gemini v22.7) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -65,11 +65,10 @@ def scrape_images_from_article(url, driver):
         print(f"!!! حدث خطأ أثناء كشط الصور: {e}")
         return []
 
-# --- دالة جديدة لتنزيل الصورة محليًا ---
 def download_image(url, path):
     try:
         print(f"--- 📥 جاري تنزيل الصورة من: {url}")
-        response = requests.get(url, stream=True)
+        response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
         with open(path, 'wb') as f:
             response.raw.decode_content = True
@@ -87,8 +86,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
-    You are a professional SEO copywriter for Medium.
-    Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
+    You are a professional SEO copywriter for Medium. Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
     **Original Data:**
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
@@ -124,7 +122,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.6 (مع رفع الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v22.7 (إصلاح رفع الصور) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -144,15 +142,10 @@ def main():
 
         original_title = post_to_publish.title
         original_link = post_to_publish.link
-        
         scraped_image_urls = scrape_images_from_article(original_link, driver)
-        
         original_content_html = ""
-        if 'content' in post_to_publish and post_to_publish.content:
-            original_content_html = post_to_publish.content[0].value
-        else:
-            original_content_html = post_to_publish.summary
-
+        if 'content' in post_to_publish and post_to_publish.content: original_content_html = post_to_publish.content[0].value
+        else: original_content_html = post_to_publish.summary
         rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
         
         if not rewritten_data:
@@ -163,7 +156,6 @@ def main():
         generated_html_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         
-        # --- الجزء الجديد: تنزيل الصور محليًا ---
         downloaded_image_paths = []
         if scraped_image_urls:
             for i, url in enumerate(scraped_image_urls):
@@ -173,7 +165,6 @@ def main():
                     downloaded_image_paths.append(abs_path)
                     image_paths_to_delete.append(abs_path)
         
-        # --- إعادة بناء منطق النشر لرفع الصور ---
         sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
         uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
         if not sid_cookie or not uid_cookie:
@@ -198,26 +189,36 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
 
-        # تقسيم المحتوى لرفع الصور بين الأجزاء
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
         for i, part in enumerate(parts):
-            # لصق جزء النص
             if part.strip():
                 js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_script, part)
                 story_field.send_keys(Keys.CONTROL, 'v')
                 time.sleep(2)
 
-            # رفع الصورة بعد الجزء الحالي (إذا كانت هناك صورة)
             if i < len(downloaded_image_paths):
                 print(f"--- ⬆️ جاري رفع الصورة رقم {i+1}...")
-                # العثور على حقل إدخال الملف المخفي ورفعه
-                file_input = driver.find_element(By.CSS_SELECTOR, 'input[type="file"]')
-                driver.execute_script("arguments[0].style.display = 'block';", file_input) # إظهار العنصر
+                story_field.send_keys(Keys.ENTER) # إنشاء سطر جديد
+                time.sleep(1)
+                
+                # *** الإصلاح الرئيسي: محاكاة نقر المستخدم لفتح قائمة الرفع ***
+                plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="open-menu"]')))
+                plus_button.click()
+                time.sleep(1)
+                
+                upload_image_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="upload-image"]')))
+                upload_image_button.click()
+                time.sleep(1)
+                
+                # الآن نبحث عن حقل الرفع بعد أن أصبح موجودًا
+                file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
                 file_input.send_keys(downloaded_image_paths[i])
+                
                 print("--- ⏳ انتظار اكتمال رفع الصورة...")
-                time.sleep(15) # إعطاء وقت كاف لرفع الصورة
+                time.sleep(20) # زيادة الوقت للسماح برفع ومعالجة الصورة
+                story_field.send_keys(Keys.ENTER) # إنشاء سطر جديد بعد الصورة
         
         time.sleep(5)
 
@@ -256,7 +257,6 @@ def main():
         with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
         raise e
     finally:
-        # --- التنظيف: حذف الصور المؤقتة ---
         print("--- 🧹 جاري تنظيف الملفات المؤقتة...")
         for path in image_paths_to_delete:
             try:
