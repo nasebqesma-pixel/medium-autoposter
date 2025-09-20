@@ -60,7 +60,6 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     
-    # تمت إزالة image_url من الـ prompt لأنه لم يتم استخدامه بشكل مباشر.
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
@@ -81,7 +80,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
             - Do not add your own `<img>` tags.
     4.  **Smart Closing Method...**
     **Output Format:**
-    Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
+    Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags".
     ...
     """
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
@@ -97,7 +96,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
             clean_json_str = json_match.group(0)
             result = json.loads(clean_json_str)
             print("--- ✅ تم استلام مقال كامل من Gemini.")
-            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
+            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", [])}
         else:
             raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
     except Exception as e:
@@ -105,7 +104,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v21.3 (مع حل مشكلة الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v21.4 (مع حل مشكلة الصور) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -114,7 +113,6 @@ def main():
     original_title = post_to_publish.title
     original_link = post_to_publish.link
     
-    # --- *** التحسين الجديد هنا (التشخيص) *** ---
     image_url = extract_image_url_from_entry(post_to_publish)
     if image_url:
         print(f"--- 🖼️ تم العثور على رابط الصورة: {image_url}")
@@ -134,7 +132,7 @@ def main():
         generated_html_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         
-        # *** هذا هو التعديل الأساسي: العودة إلى استخدام وسم <img> البسيط ***
+        # **التعديل الجديد:** استخدام وسم <img> البسيط مباشرة.
         image_html = f'<img src="{image_url}">' if image_url else ""
         
         # إضافة رابط المصدر في النهاية
@@ -154,9 +152,6 @@ def main():
         image_html = f'<img src="{image_url}">' if image_url else ""
         full_html_content = image_html + original_content_html
 
-    # (بقية الكود الخاص بـ Selenium يبقى كما هو)
-    # ...
-    # الكود الخاص بـ Selenium يبدأ من هنا
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
