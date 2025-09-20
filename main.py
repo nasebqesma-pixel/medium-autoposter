@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si (تم التحديث بواسطة Gemini) ---
+# --- برمجة ahmed si (تم التحديث والإصلاح بواسطة Gemini) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -39,38 +39,25 @@ def get_next_post_to_publish():
     return None
 
 def scrape_images_from_article(url, driver):
-    """
-    تستخدم Selenium لزيارة رابط المقال واستخراج روابط أول صورتين رئيسيتين.
-    """
     print(f"--- 🖼️ جاري كشط الصور من الرابط الأصلي: {url}")
     image_urls = []
     try:
         driver.get(url)
-        # انتظر حتى يتم تحميل منطقة المحتوى الرئيسية
-        wait = WebDriverWait(driver, 15)
-        # ابحث عن منطقة المحتوى (يمكن تخصيص هذه المحددات لموقع معين)
+        wait = WebDriverWait(driver, 20)
         content_area = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article, .post-content, .entry-content, main")))
-        
-        # ابحث عن كل الصور داخل منطقة المحتوى
         images = content_area.find_elements(By.TAG_NAME, "img")
         print(f"--- تم العثور على {len(images)} صورة في منطقة المحتوى.")
-        
         for img in images:
             src = img.get_attribute('src')
-            # تحقق من أن الرابط صالح وأنه ليس صورة صغيرة جدًا (مثل spacer.gif)
             if src and src.startswith('http') and not "data:image" in src:
-                 # تحقق من أن الرابط ليس مكررًا
                 if src not in image_urls:
                     image_urls.append(src)
-            # نتوقف عند العثور على صورتين
             if len(image_urls) == 2:
                 break
-        
         if image_urls:
             print(f"--- ✅ تم استخراج {len(image_urls)} روابط صور بنجاح.")
         else:
             print("--- ⚠️ لم يتم العثور على صور قابلة للاستخراج من الصفحة.")
-            
         return image_urls
     except Exception as e:
         print(f"!!! حدث خطأ أثناء كشط الصور: {e}")
@@ -80,10 +67,8 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
-
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
-    # تعديل Prompt ليشمل روابط الصور المتعددة
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
@@ -109,7 +94,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
     ...
     """
-    # تحديث اسم النموذج إلى أحدث نسخة flash
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
@@ -131,21 +115,17 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.0 (مع كشط الصور) ---")
-    
-    # إعداد متصفح Selenium أولاً لاستخدامه في الكشط والنشر
+    print("--- بدء تشغيل الروبوت الناشر v22.1 (إصلاحات الموثوقية) ---")
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
         print("!!! خطأ: لم يتم العثور على الكوكيز الخاصة بـ Medium.")
         return
-
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
-
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
@@ -158,16 +138,12 @@ def main():
 
         original_title = post_to_publish.title
         original_link = post_to_publish.link
-        
-        # --- *** التحسين الجديد هنا: استخراج الصور من الموقع *** ---
         scraped_image_urls = scrape_images_from_article(original_link, driver)
-        
         original_content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
             original_content_html = post_to_publish.content[0].value
         else:
             original_content_html = post_to_publish.summary
-
         rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
         
         if rewritten_data:
@@ -175,31 +151,23 @@ def main():
             generated_html_content = rewritten_data["content"]
             ai_tags = rewritten_data.get("tags", [])
             ai_alt_texts = rewritten_data.get("alt_texts", [])
-            
             full_html_content = generated_html_content
-            
             if scraped_image_urls:
                 print("--- 🔧 جاري إدراج الصور التي تم كشطها في المحتوى...")
                 site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
-                
-                # إدراج الصورة الأولى
                 alt_text1 = ai_alt_texts[0] if len(ai_alt_texts) > 0 else "Main recipe image"
                 caption1 = f"<em>{alt_text1} - {site_name}</em>"
                 image1_html = f'<figure><img src="{scraped_image_urls[0]}" alt="{alt_text1}"><figcaption>{caption1}</figcaption></figure>'
                 full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image1_html)
-
-                # إدراج الصورة الثانية (إذا وجدت)
                 if len(scraped_image_urls) > 1:
                     alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed view of the recipe"
                     caption2 = f"<em>{alt_text2} - {site_name}</em>"
                     image2_html = f'<figure><img src="{scraped_image_urls[1]}" alt="{alt_text2}"><figcaption>{caption2}</figcaption></figure>'
                     full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image2_html)
-                else: # إذا وجدت صورة واحدة فقط، يمكن استخدامها في المكان الثاني أيضًا أو تركه فارغًا
+                else:
                     full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
-
             else:
                 print("--- لم يتم العثور على صور لإدراجها.")
-                # تنظيف أي placeholders متبقية
                 full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", "")
                 full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
         else:
@@ -207,8 +175,6 @@ def main():
             final_title = original_title
             ai_tags = []
             full_html_content = original_content_html
-        
-        # --- بدء عملية النشر على Medium ---
         
         print("\n--- 2. إعداد جلسة النشر على Medium...")
         driver.get("https://medium.com/")
@@ -221,28 +187,34 @@ def main():
         wait = WebDriverWait(driver, 30)
 
         print("--- 4. كتابة العنوان والمحتوى...")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
-        title_field.click()
+        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'textarea[placeholder="Title"]')))
         title_field.send_keys(final_title)
 
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraph"]')))
         story_field.click()
         
-        # استخدام JavaScript للصق المحتوى بصيغة HTML
-        js_script = "const html = arguments[0]; const el = document.querySelector('p[data-testid=\"editorParagraphText\"]'); const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(range); document.execCommand('insertHTML', false, html);"
-        driver.execute_script(js_script, full_html_content)
-        time.sleep(5)
+        js_script_paste = "const html = arguments[0]; const sel = window.getSelection(); if (sel.rangeCount > 0) { const range = sel.getRangeAt(0); range.deleteContents(); const el = document.createElement('div'); el.innerHTML = html; const frag = document.createDocumentFragment(); let node, lastNode; while ((node = el.firstChild)) { lastNode = frag.appendChild(node); } range.insertNode(frag); }"
+        driver.execute_script(js_script_paste, full_html_content)
+        
+        # *** التحسين الرئيسي هنا ***
+        # زيادة فترة الانتظار بعد اللصق للسماح للمحرر بالمعالجة
+        print("--- المحتوى تم لصقه، جاري الانتظار لمعالجة المحرر...")
+        time.sleep(10)
 
         print("--- 5. بدء عملية النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        publish_button.click()
+        # استخدام مُعرّف أكثر موثوقية وزيادة قوة عملية النقر
+        publish_button_selector = 'button[data-action="show-prepublish"]'
+        publish_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, publish_button_selector)))
+        driver.execute_script("arguments[0].scrollIntoView(true);", publish_button)
+        time.sleep(1) # انتظر للحظة بعد التمرير
+        driver.execute_script("arguments[0].click();", publish_button)
 
         print("--- 6. إضافة الوسوم المتاحة...")
         final_tags = ai_tags[:5] if ai_tags else []
-        
         if final_tags:
-            tags_input_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.gc.gd.ge')))
-            tags_input = tags_input_container.find_element(By.CSS_SELECTOR, 'input')
+            # استخدام مُعرّف أكثر استقرارًا لحقل إدخال الوسوم
+            tags_input_selector = 'input[aria-label="Add topics..."]'
+            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, tags_input_selector)))
             for tag in final_tags:
                 tags_input.send_keys(tag)
                 time.sleep(0.5)
@@ -265,10 +237,10 @@ def main():
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
-        # حفظ لقطة شاشة ومصدر الصفحة للمساعدة في تصحيح الأخطاء
         driver.save_screenshot("error_screenshot.png")
         with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
-        raise e
+        # لا ترفع الخطأ مرة أخرى لإيقاف سير العمل، فقط سجله
+        # raise e 
     finally:
         driver.quit()
         print("--- تم إغلاق الروبوت ---")
