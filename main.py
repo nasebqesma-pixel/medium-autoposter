@@ -164,8 +164,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         response.raise_for_status()
         response_json = response.json()
         
-        raw_text = response_json['candidates']['content']['parts']['text']
-
+raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(1)
