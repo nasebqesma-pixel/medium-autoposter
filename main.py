@@ -19,7 +19,7 @@ import base64
 from PIL import Image
 import tempfile
 
-# --- برمجة ahmed si (تم الإصلاح النهائي بواسطة Gemini v24.5) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي بواسطة Gemini v24.6) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -159,14 +159,13 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     raw_text = ""
-    # --- *** بداية البنية الصحيحة لـ try...except *** ---
     try:
         response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
         response.raise_for_status()
         response_json = response.json()
         
-        # الوصول الصحيح إلى بنية بيانات Gemini باستخدام الفهرسة الرقمية
-        raw_text = response_json['candidates']['content']['parts']['text']
+        # --- *** الإصلاح النهائي والمؤكد هنا *** ---
+        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
@@ -181,15 +180,13 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         result = json.loads(clean_json_str)
         print("--- ✅ تم استلام مقال كامل من Gemini.")
         return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
-    # --- هذا هو الجزء الذي كان مفقودًا أو به خطأ في المسافة البادئة ---
     except (requests.exceptions.RequestException, KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
         print(f"!!! Gemini Error: {e}")
         print(f"--- Raw Gemini Response: ---\n{raw_text}\n--------------------------")
         return None
-    # --- نهاية البنية الصحيحة ---
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.5 (إصلاح بناء الجملة) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.6 (إصلاح نهائي) ---")
     
     user_data_dir = tempfile.mkdtemp()
     print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
@@ -224,7 +221,7 @@ def main():
         scraped_image_urls = scrape_images_from_article(original_link, driver)
         
         original_content_html = ""
-        if 'content' in post_to_publish and post_to_publish.content:
+        if 'content' in post_to_publish and post_to_publish.content and post_to_publish.content.value:
             original_content_html = post_to_publish.content.value
         elif 'summary' in post_to_publish:
             original_content_html = post_to_publish.summary
