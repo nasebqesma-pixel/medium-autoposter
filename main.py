@@ -4,7 +4,7 @@ import time
 import re
 import requests
 import json
-import uuid # لتوليد أسماء ملفات فريدة
+import uuid
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -59,7 +59,7 @@ def download_image(url):
         response.raise_for_status()
         ext = url.split('.')[-1].split('?')[0].lower()
         if ext not in ['jpg', 'jpeg', 'png', 'gif']:
-            ext = 'jpg' # تحديد امتداد افتراضي
+            ext = 'jpg'
         
         filename = f"{uuid.uuid4()}.{ext}"
         filepath = os.path.join(os.getcwd(), filename)
@@ -164,7 +164,6 @@ def main():
 
     # (بقية الكود الخاص بـ Selenium يبقى كما هو)
     # ...
-    # الكود الخاص بـ Selenium يبدأ من هنا
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
