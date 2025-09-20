@@ -18,7 +18,7 @@ import shutil
 import base64
 from PIL import Image
 
-# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v23.6) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v24.0) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -133,7 +133,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
-    
     prompt = f"""
     You are an expert API that returns only JSON. Do not write any conversational text, explanations, or apologies.
     Your entire response must be a single, valid JSON object enclosed in ```json markdown tags.
@@ -187,7 +186,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23.6 (إصلاح نهائي لتحليل JSON) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.0 (إصلاح نهائي لتحليل JSON) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -211,6 +210,7 @@ def main():
         original_title, original_link = post_to_publish.title, post_to_publish.link
         scraped_image_urls = scrape_images_from_article(original_link, driver)
         
+        # --- استعادة الطريقة الصحيحة للحصول على المحتوى ---
         original_content_html = ""
         if 'content' in post_to_publish and post_to_publish.content:
             original_content_html = post_to_publish.content.value
