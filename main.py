@@ -1,3 +1,4 @@
+ 
 import feedparser
 import os
 import time
@@ -13,21 +14,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# *** التغيير الجديد هنا ***
-import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
-
 # --- برمجة ahmed si ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# *** التغيير الجديد هنا ***
-# قم بتكوين Gemini API مباشرةً
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash') # استخدام نموذج أسرع ومناسب للإنتاج
 
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
@@ -62,35 +53,17 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-# *** التغيير الجذري هنا ***
 def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
-    
-    # تحديد الهيكل المطلوب في ملف JSON
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "new_title": {"type": "string"},
-            "new_html_content": {"type": "string"},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "alt_texts": {"type": "array", "items": {"type": "string"}}
-        },
-        "required": ["new_title", "new_html_content"]
-    }
 
-    # تعديل طلب Gemini API لطلب إخراج JSON
-    generation_config = GenerationConfig(
-        response_mime_type="application/json",
-        response_schema=json_schema
-    )
-    
+    print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
-    
+
     **Original Data:**
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
@@ -110,23 +83,24 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_url):
     4.  **Smart Closing Method...**
     **Output Format:**
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
+    ...
     """
-    
-    print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     try:
-        response = model.generate_content(prompt, generation_config=generation_config)
-        
-        # لا حاجة لتحليل النص العادي أو استخدام `re`
-        # `response.text` سيكون JSON صالحاً
-        result = json.loads(response.text)
-        
-        print("--- ✅ تم استلام مقال كامل من Gemini.")
-        return {
-            "title": result.get("new_title", title),
-            "content": result.get("new_html_content", content_html),
-            "tags": result.get("tags", []),
-            "alt_texts": result.get("alt_texts", [])
-        }
+        response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
+        response.raise_for_status()
+        response_json = response.json()
+        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if json_match:
+            clean_json_str = json_match.group(0)
+            result = json.loads(clean_json_str)
+            print("--- ✅ تم استلام مقال كامل من Gemini.")
+            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
+        else:
+            raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
         return None
@@ -154,7 +128,6 @@ def main():
     else:
         original_content_html = post_to_publish.summary
 
-    # هنا يتم استخدام الدالة الجديدة التي تعتمد على JSON
     rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, image_url)
     
     if rewritten_data:
@@ -249,9 +222,10 @@ def main():
 
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        time.sleep(2)
+            
+        # *** التعديل هنا: استخدام دالة JavaScript لتجنب الأخطاء ***
         driver.execute_script("arguments[0].click();", publish_now_button)
-
+        
         print("--- 8. انتظار نهائي للسماح بمعالجة النشر...")
         time.sleep(15)
 
@@ -269,3 +243,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+ 
