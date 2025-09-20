@@ -5,6 +5,7 @@ import re
 import requests
 import json
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -14,7 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة الذهبية v23 ---
+# --- برمجة ahmed si - النسخة النهائية v24 ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -54,14 +55,35 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
+def make_absolute_url(url, base_url):
+    """تحويل الروابط النسبية إلى مطلقة"""
+    if not url:
+        return None
+    
+    # إذا كان الرابط مطلقاً بالفعل
+    if url.startswith('http://') or url.startswith('https://'):
+        return url
+    
+    # إذا كان يبدأ بـ //
+    if url.startswith('//'):
+        return 'https:' + url
+    
+    # إذا كان رابط نسبي
+    return urljoin(base_url, url)
+
 def scrape_article_images(article_url):
     """كشط جميع الصور من المقال الأصلي"""
     print(f"--- 🔍 جاري كشط الصور من: {article_url}")
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
         }
-        response = requests.get(article_url, headers=headers, timeout=10)
+        response = requests.get(article_url, headers=headers, timeout=15)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -69,26 +91,45 @@ def scrape_article_images(article_url):
         # البحث في منطقة article
         article = soup.find('article', class_='article')
         if not article:
-            article = soup.find('article')  # محاولة بدون class
+            article = soup.find('article')
         if not article:
-            article = soup  # استخدام الصفحة كاملة كخيار احتياطي
+            article = soup.find('main')  # بديل آخر
+        if not article:
+            article = soup  # استخدام الصفحة كاملة
         
         # استخراج جميع الصور
         images = []
         for img in article.find_all('img'):
-            src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
+            # جرب مصادر مختلفة للصورة
+            src = (img.get('src') or 
+                   img.get('data-src') or 
+                   img.get('data-lazy-src') or
+                   img.get('data-original'))
+            
+            # أيضاً تحقق من srcset للحصول على أفضل جودة
+            srcset = img.get('srcset')
+            if srcset and not src:
+                # استخرج أول رابط من srcset
+                src_match = re.search(r'([^\s]+)', srcset)
+                if src_match:
+                    src = src_match.group(1)
+            
             if src:
-                # تحويل الروابط النسبية إلى مطلقة
-                if src.startswith('//'):
-                    src = 'https:' + src
-                elif src.startswith('/'):
-                    from urllib.parse import urljoin
-                    src = urljoin(article_url, src)
+                # تحويل إلى رابط مطلق
+                absolute_url = make_absolute_url(src, article_url)
                 
-                # تصفية الصور الصغيرة أو الأيقونات
-                if 'logo' not in src.lower() and 'icon' not in src.lower():
-                    if src not in images:  # تجنب التكرار
-                        images.append(src)
+                # تصفية الصور غير المرغوبة
+                if absolute_url and all(x not in absolute_url.lower() for x in ['logo', 'icon', 'avatar', 'placeholder']):
+                    # تنظيف الرابط من معاملات CDN إن وجدت
+                    clean_url = absolute_url.split('?')[0]  # إزالة query parameters
+                    clean_url = re.sub(r'/cdn-cgi/[^/]+/', '/', clean_url)  # إزالة CDN path
+                    
+                    # تأكد من أن الرابط صحيح
+                    final_url = make_absolute_url(clean_url, article_url)
+                    
+                    if final_url and final_url not in images:
+                        images.append(final_url)
+                        print(f"    ✓ صورة: {final_url[:60]}...")
         
         print(f"--- ✅ تم العثور على {len(images)} صورة في المقال")
         return images
@@ -110,7 +151,7 @@ def get_best_images_for_article(article_url, rss_image=None):
     # إضافة الصور المكشوطة
     all_images.extend(scraped_images)
     
-    # إزالة التكرارات مع الحفاظ على الترتيب
+    # إزالة التكرارات
     unique_images = []
     seen = set()
     for img in all_images:
@@ -120,12 +161,10 @@ def get_best_images_for_article(article_url, rss_image=None):
     
     # اختيار صورتين مختلفتين
     if len(unique_images) >= 2:
-        # الصورة الأولى: الرئيسية (من RSS أو أول صورة)
         image1 = unique_images[0]
-        # الصورة الثانية: من وسط المقال
-        image2 = unique_images[len(unique_images)//2] if len(unique_images) > 2 else unique_images[1]
+        # محاولة الحصول على صورة مختلفة للموضع الثاني
+        image2 = unique_images[min(2, len(unique_images)-1)] if len(unique_images) > 2 else unique_images[1]
     elif len(unique_images) == 1:
-        # استخدام نفس الصورة مرتين إذا لم نجد غيرها
         image1 = image2 = unique_images[0]
     else:
         image1 = image2 = None
@@ -140,14 +179,15 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     
-    prompt = f"""
+    # استخدام """ بدلاً من f-string لتجنب مشكلة الأقواس
+    prompt = """
     You are a professional SEO copywriter for Medium.
     Your task is to rewrite a recipe article for maximum engagement and SEO.
 
     **Original Data:**
-    - Original Title: "{title}"
-    - Original Content: "{clean_content[:1500]}"
-    - Link to full recipe: "{original_link}"
+    - Original Title: "%s"
+    - Original Content: "%s"
+    - Link to full recipe: "%s"
 
     **Requirements:**
     1. **New Title:** Create an engaging, SEO-optimized title (60-70 characters)
@@ -156,20 +196,20 @@ def rewrite_content_with_gemini(title, content_html, original_link):
        - Include practical tips and insights
        - Use headers (h2, h3) for structure
        - Add numbered or bulleted lists where appropriate
-       - **IMPORTANT**: Use ONLY simple HTML tags (p, h2, h3, ul, ol, li, strong, em)
+       - **IMPORTANT**: Use ONLY simple HTML tags (p, h2, h3, ul, ol, li, strong, em, br)
        - **DO NOT** use img, figure, or complex tags
-       - Insert these EXACT placeholders (with single curly braces):
-         * {IMAGE_1_HERE} after the introduction paragraph
-         * {IMAGE_2_HERE} in the middle section of the article
+       - Insert these EXACT placeholders AS WRITTEN:
+         * INSERT_IMAGE_1_HERE (after the introduction paragraph)
+         * INSERT_IMAGE_2_HERE (in the middle section of the article)
     3. **Call to Action:** End with a natural link to the original recipe
     4. **Tags:** Suggest 5 relevant Medium tags
 
     **Output Format:**
     Return ONLY a valid JSON object with these keys:
     - "new_title": The new title
-    - "new_html_content": The HTML content with {IMAGE_1_HERE} and {IMAGE_2_HERE} placeholders
+    - "new_html_content": The HTML content with INSERT_IMAGE_1_HERE and INSERT_IMAGE_2_HERE placeholders
     - "tags": Array of 5 tags
-    """
+    """ % (title, clean_content[:1500], original_link)
     
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
@@ -210,41 +250,51 @@ def prepare_html_with_multiple_images(content_html, image1, image2, original_lin
     else:
         image1_with_caption = ""
     
-    # إعداد HTML للصورة الثانية
+    # إعداد HTML للصورة الثانية  
     if image2:
         image2_html = f'<img src="{image2}" alt="Final dish">'
         image2_with_caption = f'{image2_html}<p><em>The delicious final result!</em></p>'
     else:
         image2_with_caption = ""
     
-    # استبدال العلامات (التعامل مع أقواس مفردة)
-    if "{IMAGE_1_HERE}" in content_html:
-        content_html = content_html.replace("{IMAGE_1_HERE}", image1_with_caption)
-        print("--- ✅ تم إدراج الصورة الأولى")
-    elif image1 and "<p>" in content_html:
-        # إذا لم توجد علامة، ضع الصورة بعد أول فقرة
-        first_p_end = content_html.find("</p>") + 4
-        if first_p_end > 4:
-            content_html = content_html[:first_p_end] + image1_with_caption + content_html[first_p_end:]
+    # استبدال العلامات (جرب عدة احتمالات)
+    placeholders = [
+        ("INSERT_IMAGE_1_HERE", image1_with_caption),
+        ("INSERT_IMAGE_2_HERE", image2_with_caption),
+        ("{IMAGE_1_HERE}", image1_with_caption),
+        ("{IMAGE_2_HERE}", image2_with_caption),
+        ("{{IMAGE_1_HERE}}", image1_with_caption),
+        ("{{IMAGE_2_HERE}}", image2_with_caption)
+    ]
     
-    if "{IMAGE_2_HERE}" in content_html:
-        content_html = content_html.replace("{IMAGE_2_HERE}", image2_with_caption)
-        print("--- ✅ تم إدراج الصورة الثانية")
-    elif image2 and "</h2>" in content_html:
-        # إذا لم توجد علامة، ضع الصورة بعد أول عنوان فرعي
-        h2_positions = [m.end() for m in re.finditer(r'</h2>', content_html)]
-        if len(h2_positions) > 0:
-            mid_position = h2_positions[len(h2_positions)//2] if len(h2_positions) > 1 else h2_positions[0]
-            content_html = content_html[:mid_position] + image2_with_caption + content_html[mid_position:]
+    for placeholder, replacement in placeholders:
+        if placeholder in content_html:
+            content_html = content_html.replace(placeholder, replacement)
+            print(f"    ✓ تم استبدال: {placeholder}")
+    
+    # إذا لم نجد أي علامات ولدينا صور، أضفها في مواضع مناسبة
+    if image1 and "img src=" not in content_html:
+        # ضع الصورة الأولى بعد أول فقرة
+        if "</p>" in content_html:
+            first_p_end = content_html.find("</p>") + 4
+            content_html = content_html[:first_p_end] + image1_with_caption + content_html[first_p_end:]
+        
+        # ضع الصورة الثانية في المنتصف
+        if image2 and image2 != image1:
+            mid_point = len(content_html) // 2
+            # ابحث عن أقرب نهاية فقرة
+            next_p = content_html.find("</p>", mid_point)
+            if next_p != -1:
+                content_html = content_html[:next_p+4] + image2_with_caption + content_html[next_p+4:]
     
     # إضافة رابط المصدر
     site_name = "Fastyummyfood.com"
-    call_to_action = f'<br><p><strong>For the complete recipe with detailed instructions and more tips, visit us at <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
+    call_to_action = f'<br><p><strong>For the complete recipe with detailed instructions and more tips, visit <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
     
     return content_html + call_to_action
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23 (النسخة الذهبية مع كشط الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24 (النسخة النهائية) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -260,9 +310,9 @@ def main():
     image1, image2 = get_best_images_for_article(original_link, rss_image)
     
     if image1:
-        print(f"--- 🖼️ الصورة الأولى: {image1[:50]}...")
+        print(f"--- 🖼️ الصورة الأولى: {image1[:80]}...")
     if image2:
-        print(f"--- 🖼️ الصورة الثانية: {image2[:50]}...")
+        print(f"--- 🖼️ الصورة الثانية: {image2[:80]}...")
     
     if not image1 and not image2:
         print("--- ⚠️ لم يتم العثور على أي صور!")
@@ -296,16 +346,16 @@ def main():
         
         # استخدام الطريقة البسيطة
         if image1:
-            image1_html = f'<img src="{image1}">'
+            image1_html = f'<img src="{image1}" alt="Recipe image">'
         else:
             image1_html = ""
         
         if image2 and image2 != image1:
-            image2_html = f'<br><img src="{image2}">'
+            image2_html = f'<br><img src="{image2}" alt="Recipe detail">'
         else:
             image2_html = ""
         
-        call_to_action = "For the full recipe, including step-by-step photos and tips, visit us at"
+        call_to_action = "For the full recipe, visit us at"
         link_html = f'<br><p><em>{call_to_action} <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
         full_html_content = image1_html + original_content_html + image2_html + link_html
 
@@ -322,6 +372,9 @@ def main():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--disable-features=VizDisplayCompositor")
     
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -370,7 +423,7 @@ def main():
         
         # انتظار أطول لرفع صورتين
         print("--- ⏳ انتظار رفع الصور على Medium...")
-        time.sleep(10)
+        time.sleep(12)
         
         print("--- 6. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable(
@@ -407,7 +460,7 @@ def main():
         
         # حفظ الرابط كمنشور
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح مع صورتين مختلفتين! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح مع الصور! 🎉🎉🎉")
         
     except Exception as e:
         print(f"!!! حدث خطأ: {e}")
