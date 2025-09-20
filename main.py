@@ -17,8 +17,9 @@ from selenium_stealth import stealth
 import shutil
 import base64
 from PIL import Image
+import tempfile # <-- *** الإضافة الجديدة ***
 
-# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v24.0) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v24.2) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -163,7 +164,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response.raise_for_status()
         response_json = response.json()
         
-        # --- *** الإصلاح الأول: طريقة تحليل استجابة Gemini *** ---
         raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
@@ -186,24 +186,33 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.1 (إصلاحات شاملة) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.2 (إصلاح مشكلة الجلسة) ---")
     
+    # --- *** الإصلاح الجديد: إنشاء مجلد بيانات مستخدم مؤقت *** ---
+    user_data_dir = tempfile.mkdtemp()
+    print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
+
     options = webdriver.ChromeOptions()
-    # options.add_argument("--headless") # قم بإلغاء التعليق عند التشغيل النهائي
+    options.add_argument("--headless") # موصى به للبيئات الآلية
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu") # موصى به للبيئات الآلية
     options.add_argument("window-size=1920,1080")
+    
+    # --- *** الإصلاح الجديد: استخدام المجلد المؤقت *** ---
+    options.add_argument(f"--user-data-dir={user_data_dir}")
     
     print("--- 🔒 منح إذن الوصول إلى الحافظة للمتصفح...")
     prefs = {"profile.default_content_setting_values.clipboard": 1}
     options.add_experimental_option("prefs", prefs)
     
-    service = ChromeService(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-
+    driver = None
     image_paths_to_delete = []
     try:
+        service = ChromeService(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
+
         post_to_publish = get_next_post_to_publish()
         if not post_to_publish: 
             print("--- لا توجد مقالات جديدة لنشرها.")
@@ -281,7 +290,6 @@ def main():
                     print("--- ⏳ انتظار اكتمال رفع الصورة...")
                     upload_wait = WebDriverWait(driver, 60)
                     try:
-                        # انتظار حتى يظهر عدد الصور المتوقع في المحرر
                         expected_images = i + 1
                         upload_wait.until(
                             lambda d: len(d.find_elements(By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')) >= expected_images
@@ -299,7 +307,6 @@ def main():
         
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        # --- *** الإصلاح الثاني: طريقة النقر بـ JavaScript (الزر الأول) *** ---
         driver.execute_script("arguments.click();", publish_button)
         
         print("--- 6. إضافة الوسوم...")
@@ -316,7 +323,6 @@ def main():
         
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        # --- *** الإصلاح الثالث: طريقة النقر بـ JavaScript (الزر الثاني) *** ---
         driver.execute_script("arguments.click();", publish_now_button)
         
         print("--- 8. انتظار نهائي...")
@@ -326,12 +332,13 @@ def main():
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
-        screenshot_path = "error_screenshot.png"
-        page_source_path = "error_page_source.html"
-        driver.save_screenshot(screenshot_path)
-        with open(page_source_path, "w", encoding="utf-8") as f: f.write(driver.page_source)
-        print(f"--- تم حفظ لقطة الشاشة في: {screenshot_path}")
-        print(f"--- تم حفظ مصدر الصفحة في: {page_source_path}")
+        if driver:
+            screenshot_path = "error_screenshot.png"
+            page_source_path = "error_page_source.html"
+            driver.save_screenshot(screenshot_path)
+            with open(page_source_path, "w", encoding="utf-8") as f: f.write(driver.page_source)
+            print(f"--- تم حفظ لقطة الشاشة في: {screenshot_path}")
+            print(f"--- تم حفظ مصدر الصفحة في: {page_source_path}")
         raise e
     finally:
         print("--- 🧹 جاري تنظيف الملفات المؤقتة...")
@@ -343,6 +350,12 @@ def main():
                 print(f"!!! خطأ أثناء حذف الملف {path}: {e}")
         if 'driver' in locals() and driver:
             driver.quit()
+        
+        # --- *** الإصلاح الجديد: حذف المجلد المؤقت *** ---
+        if 'user_data_dir' in locals() and os.path.exists(user_data_dir):
+            shutil.rmtree(user_data_dir, ignore_errors=True)
+            print(f"--- تم حذف مجلد البيانات المؤقت: {user_data_dir}")
+
         print("--- تم إغلاق الروبوت ---")
 
 if __name__ == "__main__":
