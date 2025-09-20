@@ -110,7 +110,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     ...
     """
     # تحديث اسم النموذج إلى أحدث نسخة flash
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}'
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     try:
