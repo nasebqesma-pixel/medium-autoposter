@@ -27,7 +27,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # قم بتكوين Gemini API مباشرةً
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash') # استخدام نموذج أسرع ومناسب للإنتاج
+    model = genai.GenerativeModel('gemini-2.0-flash') # استخدام نموذج أسرع ومناسب للإنتاج
 
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
