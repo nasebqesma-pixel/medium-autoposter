@@ -17,7 +17,7 @@ from selenium_stealth import stealth
 import shutil
 import base64
 
-# --- برمجة ahmed si (تم التنفيذ النهائي بفكرة النسخ واللصق بواسطة Gemini v23.0) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي بمنح أذونات الحافظة بواسطة Gemini v23.1) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -78,13 +78,10 @@ def download_image(url, path):
         print(f"!!! فشل تنزيل الصورة: {e}")
         return None
 
-# --- الدالة الجديدة والمحورية: نسخ الصورة إلى حافظة المتصفح ---
 def copy_image_to_clipboard(driver, image_path):
     print(f"--- 📋 جاري نسخ الصورة '{image_path}' إلى الحافظة...")
     try:
-        with open(image_path, "rb") as f:
-            image_data = f.read()
-        
+        with open(image_path, "rb") as f: image_data = f.read()
         base64_data = base64.b64encode(image_data).decode('utf-8')
 
         js_script = """
@@ -102,17 +99,18 @@ def copy_image_to_clipboard(driver, image_path):
                 return true;
             } catch (err) {
                 console.error('Failed to copy image: ', err);
-                return false;
+                return err.message; // إعادة رسالة الخطأ لتصحيحه
             }
         }
         return copyImage(arguments[0]);
         """
         result = driver.execute_script(js_script, base64_data)
-        if result:
+        if result is True:
             print("--- ✅ تمت عملية النسخ بنجاح.")
+            return True
         else:
-            print("--- ⚠️ فشلت عملية النسخ.")
-        return result
+            print(f"--- ⚠️ فشلت عملية النسخ. السبب: {result}")
+            return False
     except Exception as e:
         print(f"!!! حدث خطأ أثناء نسخ الصورة للحافظة: {e}")
         return False
@@ -121,7 +119,6 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
-    # ... (محتوى الدالة يبقى كما هو)
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     prompt = f"""
@@ -153,15 +150,20 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         print(f"!!! Gemini Error: {e}")
         return None
 
-
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23.0 (حل النسخ واللصق) ---")
+    print("--- بدء تشغيل الروبوت الناشر v23.1 (إصلاح أذونات الحافظة) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
+    
+    # --- *** الإصلاح النهائي: منح إذن الوصول إلى الحافظة *** ---
+    print("--- 🔒 منح إذن الوصول إلى الحافظة للمتصفح...")
+    prefs = {"profile.default_content_setting_values.clipboard": 1}
+    options.add_experimental_option("prefs", prefs)
+    
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
@@ -230,21 +232,23 @@ def main():
                 print(f"--- ⬆️ جاري لصق الصورة رقم {i+1}...")
                 actions.send_keys(Keys.ENTER).perform()
                 
-                # --- المنهجية الجديدة ---
-                copy_image_to_clipboard(driver, downloaded_image_paths[i])
-                time.sleep(1)
-                actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+                if copy_image_to_clipboard(driver, downloaded_image_paths[i]):
+                    time.sleep(1)
+                    actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+                    
+                    print("--- ⏳ انتظار اكتمال رفع الصورة بعد اللصق...")
+                    upload_wait = WebDriverWait(driver, 60)
+                    try:
+                        upload_wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, 'figure img[src^="https://miro.medium.com"]')) > i)
+                        print("--- ✅ الصورة ظهرت في المحرر.")
+                    except TimeoutException:
+                        print("!!! ⚠️ لم يتم التأكد من ظهور الصورة. سيتم المتابعة...")
+                    
+                    actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
+                    time.sleep(1)
+                else:
+                    print(f"!!! تعذر نسخ الصورة {i+1}، سيتم تخطيها.")
 
-                print("--- ⏳ انتظار اكتمال رفع الصورة بعد اللصق...")
-                upload_wait = WebDriverWait(driver, 60)
-                try:
-                    upload_wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, 'figure img[src^="https://miro.medium.com"]')) > i)
-                    print("--- ✅ الصورة ظهرت في المحرر.")
-                except TimeoutException:
-                    print("!!! ⚠️ لم يتم التأكد من ظهور الصورة. سيتم المتابعة...")
-                
-                actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
-                time.sleep(1)
 
         time.sleep(5)
 
@@ -252,7 +256,6 @@ def main():
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
         driver.execute_script("arguments[0].click();", publish_button)
 
-        # ... (بقية الكود الخاص بالنشر يبقى كما هو)
         print("--- 6. إضافة الوسوم المتاحة...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
