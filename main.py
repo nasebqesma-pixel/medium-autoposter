@@ -11,10 +11,11 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from selenium_stealth import stealth
 import shutil
 
-# --- برمجة ahmed si (تم الإصلاح لمحاكاة رفع الصور بشكل صحيح بواسطة Gemini v22.7) ---
+# --- برمجة ahmed si (إصلاح خطأ العنصر القديم StaleElement بواسطة Gemini v22.8) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -122,7 +123,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v22.7 (إصلاح رفع الصور) ---")
+    print("--- بدء تشغيل الروبوت الناشر v22.8 (إصلاح StaleElement) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -186,8 +187,8 @@ def main():
         title_field.click()
         title_field.send_keys(final_title)
 
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
-        story_field.click()
+        story_field_initial = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        story_field_initial.click()
 
         parts = re.split(r'<!-- IMAGE \d PLACEHOLDER -->', generated_html_content)
         
@@ -195,30 +196,42 @@ def main():
             if part.strip():
                 js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
                 driver.execute_script(js_script, part)
-                story_field.send_keys(Keys.CONTROL, 'v')
+                # استخدام العنصر النشط للصق
+                driver.switch_to.active_element.send_keys(Keys.CONTROL, 'v')
                 time.sleep(2)
 
             if i < len(downloaded_image_paths):
                 print(f"--- ⬆️ جاري رفع الصورة رقم {i+1}...")
-                story_field.send_keys(Keys.ENTER) # إنشاء سطر جديد
+                
+                # *** الإصلاح الرئيسي: التفاعل مع العنصر النشط حاليًا ***
+                driver.switch_to.active_element.send_keys(Keys.ENTER)
                 time.sleep(1)
                 
-                # *** الإصلاح الرئيسي: محاكاة نقر المستخدم لفتح قائمة الرفع ***
                 plus_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="open-menu"]')))
                 plus_button.click()
                 time.sleep(1)
                 
+                # قد يكون زر رفع الصورة داخل القائمة، لذا ننتظر ظهوره
                 upload_image_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="upload-image"]')))
                 upload_image_button.click()
                 time.sleep(1)
                 
-                # الآن نبحث عن حقل الرفع بعد أن أصبح موجودًا
                 file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
                 file_input.send_keys(downloaded_image_paths[i])
                 
                 print("--- ⏳ انتظار اكتمال رفع الصورة...")
-                time.sleep(20) # زيادة الوقت للسماح برفع ومعالجة الصورة
-                story_field.send_keys(Keys.ENTER) # إنشاء سطر جديد بعد الصورة
+                # *** التحسين: انتظار ذكي لظهور الصورة بدلاً من الوقت الثابت ***
+                upload_wait = WebDriverWait(driver, 60) # مهلة أطول للرفع
+                try:
+                    # تنتظر حتى تظهر الصورة التي تم رفعها (تأتي من نطاق miro.medium.com)
+                    upload_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f'figure img[src^="https://miro.medium.com"]')))
+                    print("--- ✅ الصورة ظهرت في المحرر.")
+                except TimeoutException:
+                    print("!!! ⚠️ لم يتم التأكد من ظهور الصورة في المحرر بعد الرفع. سيتم المتابعة على أي حال.")
+
+                # الخروج من حقل التسمية التوضيحية وإنشاء سطر جديد
+                driver.switch_to.active_element.send_keys(Keys.ARROW_DOWN)
+                driver.switch_to.active_element.send_keys(Keys.ENTER)
         
         time.sleep(5)
 
