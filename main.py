@@ -4,7 +4,7 @@ import time
 import re
 import requests
 import json
-import uuid # لإعطاء اسم فريد للملف
+import uuid
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -53,7 +53,6 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-# *** وظيفة جديدة: تنزيل الصورة ***
 def download_image(url):
     """يقوم بتنزيل صورة من رابط معين وحفظها محليًا."""
     try:
@@ -134,7 +133,6 @@ def main():
         original_title = post_to_publish.title
         original_link = post_to_publish.link
         
-        # --- **تغيير هنا**: تنزيل الصورة قبل التواصل مع Gemini ---
         image_url = extract_image_url_from_entry(post_to_publish)
         if image_url:
             temp_image_path = download_image(image_url)
@@ -200,25 +198,17 @@ def main():
             story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
             story_field.click()
 
-            # *** التعديل هنا: رفع الصورة ثم لصق النص ***
             if temp_image_path and os.path.exists(temp_image_path):
                 print("--- 🖼️ جاري رفع الصورة...")
-                
-                # إظهار زر الإضافة
                 add_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button[aria-label="Add an image"]')))
                 add_button.click()
                 time.sleep(1)
 
-                # البحث عن input type="file" المخفي
-                # Note: Medium قد يغير هذا الـ selector
                 file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"][accept*="image/"]')))
-                
-                # إرسال مسار الملف إلى الـ input
                 file_input.send_keys(temp_image_path)
-                time.sleep(10) # إعطاء وقت كافٍ للرفع
+                time.sleep(10)
                 print("--- ✅ تم رفع الصورة بنجاح.")
             
-            # لصق نص المقال
             story_field.send_keys(full_text_content)
             
             print("--- 5. بدء عملية النشر...")
