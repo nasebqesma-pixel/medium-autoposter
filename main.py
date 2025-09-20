@@ -165,7 +165,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         response_json = response.json()
         
         # *** --- الإصلاح الرئيسي هنا: المسار الصحيح للوصول إلى النص --- ***
-        raw_text = response_json['candidates']['content']['parts']['text']
+        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
