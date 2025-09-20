@@ -292,7 +292,7 @@ def main():
         
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        driver.execute_script("arguments.click();", publish_button)
+driver.execute_script("arguments[0].click();", publish_button)
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
@@ -306,8 +306,8 @@ def main():
             print(f"--- تمت إضافة الوسوم: {', '.join(final_tags)}")
         
         print("--- 7. إرسال أمر النشر النهائي...")
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        driver.execute_script("arguments.click();", publish_now_button)
+       publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
+driver.execute_script("arguments[0].click();", publish_now_button)
         print("--- 8. انتظار نهائي...")
         time.sleep(15)
         add_posted_link(post_to_publish.link)
