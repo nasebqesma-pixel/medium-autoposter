@@ -19,7 +19,7 @@ import base64
 from PIL import Image
 import tempfile
 
-# --- برمجة ahmed si (إصلاح مشكلة بدء الجلسة واستجابة Gemini) ---
+# --- برمجة ahmed si (إصلاح النقر النهائي واستقرار رفع الصور) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -164,14 +164,13 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         response.raise_for_status()
         response_json = response.json()
         
-        # *** --- الإصلاح الرئيسي هنا: المسار الصحيح للوصول إلى النص --- ***
+        # *** --- الإصلاح الرئيسي هنا: المسار الصحيح الكامل للوصول إلى النص --- ***
         raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
-
+        
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(1)
         else:
-            # Fallback for when markdown tags are missing
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if json_match:
                 clean_json_str = json_match.group(0)
@@ -188,7 +187,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v24.4 (إصلاح بدء الجلسة) ---")
+    print("--- بدء تشغيل الروبوت الناشر v24.5 (إصلاح النقر النهائي) ---")
     
     user_data_dir = tempfile.mkdtemp()
     print(f"--- 📂 استخدام مجلد بيانات مؤقت: {user_data_dir}")
@@ -199,9 +198,8 @@ def main():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
-    # *** --- الإصلاح الرئيسي هنا: إضافة خيارات لزيادة الاستقرار --- ***
     options.add_argument("--disable-extensions")
-    options.add_argument("--remote-debugging-port=9222") # استخدام 9222 أو 0
+    options.add_argument("--remote-debugging-port=9222")
     options.add_argument(f"--user-data-dir={user_data_dir}")
     
     print("--- 🔒 منح إذن الوصول إلى الحافظة للمتصفح...")
@@ -304,13 +302,13 @@ def main():
         
         print("--- 5. بدء عملية النشر...")
         publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        driver.execute_script("arguments.click();", publish_button)
+        # *** --- الإصلاح الرئيسي هنا: استخدام النقر القياسي بدلاً من JavaScript --- ***
+        publish_button.click()
         
         print("--- 6. إضافة الوسوم...")
         final_tags = ai_tags[:5] if ai_tags else []
         if final_tags:
-            tags_input_locator = (By.CSS_SELECTOR, 'input[aria-label="Add a topic"], div[data-testid="publishTopicsInput"]')
-            tags_input = wait.until(EC.presence_of_element_located(tags_input_locator))
+            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add a topic"]')))
             tags_input.click()
             time.sleep(0.5)
             for tag in final_tags:
@@ -322,7 +320,8 @@ def main():
         
         print("--- 7. إرسال أمر النشر النهائي...")
         publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        driver.execute_script("arguments.click();", publish_now_button)
+        # *** --- الإصلاح الرئيسي هنا: استخدام النقر القياسي بدلاً من JavaScript --- ***
+        publish_now_button.click()
         
         print("--- 8. انتظار نهائي...")
         time.sleep(15)
