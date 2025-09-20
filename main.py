@@ -60,13 +60,14 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
     
+    # *** التعديل الرئيسي هنا ***: تقليل المحتوى المرسل إلى Gemini
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
 
     **Original Data:**
     - Original Title: "{title}"
-    - Original Content Snippet: "{clean_content[:1500]}"
+    - Original Content Snippet: "{clean_content[:500]}" # تم تقليله إلى 500 حرف
     - Link to the full recipe: "{original_link}"
 
     **Article Requirements:**
@@ -101,6 +102,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
             raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء التواصل مع Gemini: {e}")
+        # يمكنك إضافة طباعة لـ `e` هنا للحصول على تفاصيل الخطأ
         return None
 
 def main():
@@ -132,10 +134,8 @@ def main():
         generated_html_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         
-        # **التعديل الجديد:** استخدام وسم <img> البسيط مباشرة.
         image_html = f'<img src="{image_url}">' if image_url else ""
         
-        # إضافة رابط المصدر في النهاية
         site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
         call_to_action = f"For the full recipe, including step-by-step photos and tips, visit us at <a href=\"{original_link}\" rel=\"noopener\" target=\"_blank\">{site_name}</a>."
         link_html = f'<br><p><em>{call_to_action}</em></p>'
