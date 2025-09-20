@@ -18,7 +18,7 @@ import shutil
 import base64
 from PIL import Image
 
-# --- برمجة ahmed si (تم إصلاح موثوقية Gemini بواسطة Gemini v23.3) ---
+# --- برمجة ahmed si (تم إصلاح خطأ تحليل JSON بواسطة Gemini v23.4) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -127,7 +127,6 @@ def copy_image_to_clipboard(driver, image_path):
         print(f"!!! حدث خطأ أثناء نسخ الصورة للحافظة: {e}")
         return False
 
-# --- *** إصلاح شامل للدالة لضمان موثوقية Gemini *** ---
 def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
@@ -168,14 +167,14 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
         response.raise_for_status()
         response_json = response.json()
+        
+        # --- *** الإصلاح: الوصول الصحيح إلى بنية الرد الخاصة بـ Gemini *** ---
         raw_text = response_json['candidates']['content']['parts']['text']
 
-        # تحسين طريقة استخراج JSON لتكون أكثر موثوقية
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(1)
         else:
-            # طريقة احتياطية إذا لم يتم استخدام علامات markdown
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if json_match:
                 clean_json_str = json_match.group(0)
@@ -188,12 +187,11 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
 
     except Exception as e:
         print(f"!!! Gemini Error: {e}")
-        # طباعة الرد الخام للمساعدة في تشخيص المشكلة
         print(f"--- Raw Gemini Response: ---\n{raw_text}\n--------------------------")
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23.3 (إصلاح موثوقية Gemini) ---")
+    print("--- بدء تشغيل الروبوت الناشر v23.4 (إصلاح تحليل JSON) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
