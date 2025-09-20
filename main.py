@@ -12,10 +12,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 
-# --- برمجة ahmed si ---
+# --- برمجة ahmed si (تم التحديث بواسطة Gemini) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -40,56 +38,39 @@ def get_next_post_to_publish():
             return entry
     return None
 
-def extract_image_url_from_entry(entry):
-    if hasattr(entry, 'media_content') and entry.media_content:
-        for media in entry.media_content:
-            if 'url' in media and media.get('medium') == 'image': return media['url']
-    if hasattr(entry, 'enclosures') and entry.enclosures:
-        for enclosure in entry.enclosures:
-            if 'href' in enclosure and 'image' in enclosure.get('type', ''): return enclosure.href
-    content_html = ""
-    if 'content' in entry and entry.content: content_html = entry.content[0].value
-    else: content_html = entry.summary
-    match = re.search(r'<img[^>]+src="([^">]+)"', content_html)
-    if match: return match.group(1)
-    return None
-
-def scrape_images_from_url(url):
+def scrape_images_from_article(url, driver):
     """
-    دالة جديدة لكشط الصور من رابط المقال الأصلي.
+    تستخدم Selenium لزيارة رابط المقال واستخراج روابط أول صورتين رئيسيتين.
     """
-    print(f"--- 🌐 جاري كشط الصور من: {url}")
+    print(f"--- 🖼️ جاري كشط الصور من الرابط الأصلي: {url}")
+    image_urls = []
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        driver.get(url)
+        # انتظر حتى يتم تحميل منطقة المحتوى الرئيسية
+        wait = WebDriverWait(driver, 15)
+        # ابحث عن منطقة المحتوى (يمكن تخصيص هذه المحددات لموقع معين)
+        content_area = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article, .post-content, .entry-content, main")))
         
-        image_urls = []
-        # البحث عن الصور داخل محتوى المقال الرئيسي
-        content_area = soup.find('article') or soup.find('main') or soup.body
+        # ابحث عن كل الصور داخل منطقة المحتوى
+        images = content_area.find_elements(By.TAG_NAME, "img")
+        print(f"--- تم العثور على {len(images)} صورة في منطقة المحتوى.")
         
-        for img in content_area.find_all('img'):
-            if len(image_urls) >= 2: break
-            
-            src = img.get('src')
-            if not src or 'data:image' in src: continue # تجاهل الصور المضمنة
-            
-            # التأكد من أن الصورة ذات جودة كافية (ليست أيقونة)
-            width = int(img.get('width', 0))
-            height = int(img.get('height', 0))
-            if (width > 0 and width < 200) or (height > 0 and height < 200):
-                continue
-
-            # تحويل الروابط النسبية إلى مطلقة
-            absolute_src = urljoin(url, src)
-            if absolute_src not in image_urls:
-                image_urls.append(absolute_src)
-
+        for img in images:
+            src = img.get_attribute('src')
+            # تحقق من أن الرابط صالح وأنه ليس صورة صغيرة جدًا (مثل spacer.gif)
+            if src and src.startswith('http') and not "data:image" in src:
+                 # تحقق من أن الرابط ليس مكررًا
+                if src not in image_urls:
+                    image_urls.append(src)
+            # نتوقف عند العثور على صورتين
+            if len(image_urls) == 2:
+                break
+        
         if image_urls:
-            print(f"--- ✅ تم العثور على {len(image_urls)} صور من خلال الكشط.")
+            print(f"--- ✅ تم استخراج {len(image_urls)} روابط صور بنجاح.")
         else:
-            print("--- ⚠️ لم يتم العثور على صور مناسبة عبر الكشط.")
+            print("--- ⚠️ لم يتم العثور على صور قابلة للاستخراج من الصفحة.")
+            
         return image_urls
     except Exception as e:
         print(f"!!! حدث خطأ أثناء كشط الصور: {e}")
@@ -102,10 +83,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
 
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
-    
-    # تحديث اسم النموذج هنا
-    model_name = "gemini-2.0-flash"
-    
+    # تعديل Prompt ليشمل روابط الصور المتعددة
     prompt = f"""
     You are a professional SEO copywriter for Medium.
     Your task is to take an original recipe title and content, and write a full Medium-style article (around 600 words) optimized for SEO, engagement, and backlinks.
@@ -114,7 +92,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     - Original Title: "{title}"
     - Original Content Snippet: "{clean_content[:1500]}"
     - Link to the full recipe: "{original_link}"
-    - Available Image URLs: "{', '.join(image_urls)}"
+    - Available Image URLs: "{', '.join(image_urls) if image_urls else 'None'}"
 
     **Article Requirements:**
     1.  **Focus Keyword:** Identify the main focus keyword from the original title.
@@ -131,7 +109,8 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     Return ONLY a valid JSON object with the keys: "new_title", "new_html_content", "tags", and "alt_texts".
     ...
     """
-    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}'
+    # تحديث اسم النموذج إلى أحدث نسخة flash
+    api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096}}
     try:
@@ -144,7 +123,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
             clean_json_str = json_match.group(0)
             result = json.loads(clean_json_str)
             print("--- ✅ تم استلام مقال كامل من Gemini.")
-            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", [])}
+            return {"title": result.get("new_title", title), "content": result.get("new_html_content", content_html), "tags": result.get("tags", []), "alt_texts": result.get("alt_texts", ["Image of the dish", "Another view of the recipe"])}
         else:
             raise ValueError("لم يتم العثور على صيغة JSON في رد Gemini.")
     except Exception as e:
@@ -153,80 +132,12 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
 
 def main():
     print("--- بدء تشغيل الروبوت الناشر v22.0 (مع كشط الصور) ---")
-    post_to_publish = get_next_post_to_publish()
-    if not post_to_publish:
-        print(">>> النتيجة: لا توجد مقالات جديدة.")
-        return
-
-    original_title = post_to_publish.title
-    original_link = post_to_publish.link
     
-    # --- *** التحسين الجديد هنا (كشط الصور) *** ---
-    image_urls = scrape_images_from_url(original_link)
-    # خطة احتياطية: إذا فشل الكشط، استخدم الطريقة القديمة
-    if not image_urls:
-        print("--- Fallback: محاولة استخراج صورة من RSS feed.")
-        fallback_image = extract_image_url_from_entry(post_to_publish)
-        if fallback_image:
-            image_urls.append(fallback_image)
-            print(f"--- 🖼️ تم العثور على رابط صورة واحد من RSS: {fallback_image}")
-    
-    if not image_urls:
-        print("--- ⚠️ لم يتم العثور على أي رابط صورة لهذا المقال.")
-    
-    original_content_html = ""
-    if 'content' in post_to_publish and post_to_publish.content:
-        original_content_html = post_to_publish.content[0].value
-    else:
-        original_content_html = post_to_publish.summary
-
-    rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, image_urls)
-    
-    if rewritten_data:
-        final_title = rewritten_data["title"]
-        generated_html_content = rewritten_data["content"]
-        ai_tags = rewritten_data.get("tags", [])
-        ai_alt_texts = rewritten_data.get("alt_texts", ["Recipe main image", "Detailed view of the recipe"])
-        
-        full_html_content = generated_html_content
-        
-        if image_urls:
-            print("--- 🔧 جاري محاولة إدراج الصور في المحتوى...")
-            site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
-            
-            # إدراج الصورة الأولى
-            alt_text1 = ai_alt_texts[0] if len(ai_alt_texts) > 0 else "Recipe main image"
-            caption1 = f"<em>{alt_text1} - {site_name}</em>"
-            image1_html = f'<figure><img src="{image_urls[0]}" alt="{alt_text1}"><figcaption>{caption1}</figcaption></figure>'
-            full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image1_html)
-
-            # إدراج الصورة الثانية (إذا كانت موجودة)
-            if len(image_urls) > 1:
-                alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed view of the recipe"
-                caption2 = f"<em>{alt_text2} - {site_name}</em>"
-                image2_html = f'<figure><img src="{image_urls[1]}" alt="{alt_text2}"><figcaption>{caption2}</figcaption></figure>'
-                full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image2_html)
-            else:
-                # إذا لم تكن هناك صورة ثانية، قم بإزالة العنصر النائب
-                full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
-        else:
-            print("--- لا توجد صور لإدراجها.")
-            full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", "").replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
-
-    else:
-        print("--- سيتم استخدام المحتوى الأصلي بسبب فشل Gemini.")
-        final_title = original_title
-        ai_tags = []
-        image_html = f'<img src="{image_urls[0]}">' if image_urls else ""
-        full_html_content = image_html + original_content_html
-
-    # (بقية الكود الخاص بـ Selenium يبقى كما هو)
-    # ...
-    # الكود الخاص بـ Selenium يبدأ من هنا
+    # إعداد متصفح Selenium أولاً لاستخدامه في الكشط والنشر
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     if not sid_cookie or not uid_cookie:
-        print("!!! خطأ: لم يتم العثور على الكوكيز.")
+        print("!!! خطأ: لم يتم العثور على الكوكيز الخاصة بـ Medium.")
         return
 
     options = webdriver.ChromeOptions()
@@ -237,11 +148,69 @@ def main():
 
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-
     stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
     try:
-        print("--- 2. إعداد الجلسة...")
+        post_to_publish = get_next_post_to_publish()
+        if not post_to_publish:
+            print(">>> النتيجة: لا توجد مقالات جديدة لنشرها.")
+            return
+
+        original_title = post_to_publish.title
+        original_link = post_to_publish.link
+        
+        # --- *** التحسين الجديد هنا: استخراج الصور من الموقع *** ---
+        scraped_image_urls = scrape_images_from_article(original_link, driver)
+        
+        original_content_html = ""
+        if 'content' in post_to_publish and post_to_publish.content:
+            original_content_html = post_to_publish.content[0].value
+        else:
+            original_content_html = post_to_publish.summary
+
+        rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
+        
+        if rewritten_data:
+            final_title = rewritten_data["title"]
+            generated_html_content = rewritten_data["content"]
+            ai_tags = rewritten_data.get("tags", [])
+            ai_alt_texts = rewritten_data.get("alt_texts", [])
+            
+            full_html_content = generated_html_content
+            
+            if scraped_image_urls:
+                print("--- 🔧 جاري إدراج الصور التي تم كشطها في المحتوى...")
+                site_name = re.search(r'https?://(?:www\.)?([^/]+)', original_link).group(1) if re.search(r'https?://', original_link) else "our website"
+                
+                # إدراج الصورة الأولى
+                alt_text1 = ai_alt_texts[0] if len(ai_alt_texts) > 0 else "Main recipe image"
+                caption1 = f"<em>{alt_text1} - {site_name}</em>"
+                image1_html = f'<figure><img src="{scraped_image_urls[0]}" alt="{alt_text1}"><figcaption>{caption1}</figcaption></figure>'
+                full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", image1_html)
+
+                # إدراج الصورة الثانية (إذا وجدت)
+                if len(scraped_image_urls) > 1:
+                    alt_text2 = ai_alt_texts[1] if len(ai_alt_texts) > 1 else "Detailed view of the recipe"
+                    caption2 = f"<em>{alt_text2} - {site_name}</em>"
+                    image2_html = f'<figure><img src="{scraped_image_urls[1]}" alt="{alt_text2}"><figcaption>{caption2}</figcaption></figure>'
+                    full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", image2_html)
+                else: # إذا وجدت صورة واحدة فقط، يمكن استخدامها في المكان الثاني أيضًا أو تركه فارغًا
+                    full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
+
+            else:
+                print("--- لم يتم العثور على صور لإدراجها.")
+                # تنظيف أي placeholders متبقية
+                full_html_content = full_html_content.replace("<!-- IMAGE 1 PLACEHOLDER -->", "")
+                full_html_content = full_html_content.replace("<!-- IMAGE 2 PLACEHOLDER -->", "")
+        else:
+            print("--- سيتم استخدام المحتوى الأصلي بسبب فشل Gemini.")
+            final_title = original_title
+            ai_tags = []
+            full_html_content = original_content_html
+        
+        # --- بدء عملية النشر على Medium ---
+        
+        print("\n--- 2. إعداد جلسة النشر على Medium...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
         driver.add_cookie({"name": "uid", "value": uid_cookie, "domain": ".medium.com"})
@@ -259,9 +228,9 @@ def main():
         story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
         story_field.click()
         
-        js_script = "const html = arguments[0]; const blob = new Blob([html], { type: 'text/html' }); const item = new ClipboardItem({ 'text/html': blob }); navigator.clipboard.write([item]);"
+        # استخدام JavaScript للصق المحتوى بصيغة HTML
+        js_script = "const html = arguments[0]; const el = document.querySelector('p[data-testid=\"editorParagraphText\"]'); const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(range); document.execCommand('insertHTML', false, html);"
         driver.execute_script(js_script, full_html_content)
-        story_field.send_keys(Keys.CONTROL, 'v')
         time.sleep(5)
 
         print("--- 5. بدء عملية النشر...")
@@ -272,8 +241,8 @@ def main():
         final_tags = ai_tags[:5] if ai_tags else []
         
         if final_tags:
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
-            tags_input.click()
+            tags_input_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.gc.gd.ge')))
+            tags_input = tags_input_container.find_element(By.CSS_SELECTOR, 'input')
             for tag in final_tags:
                 tags_input.send_keys(tag)
                 time.sleep(0.5)
@@ -296,6 +265,7 @@ def main():
 
     except Exception as e:
         print(f"!!! حدث خطأ فادح: {e}")
+        # حفظ لقطة شاشة ومصدر الصفحة للمساعدة في تصحيح الأخطاء
         driver.save_screenshot("error_screenshot.png")
         with open("error_page_source.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
         raise e
