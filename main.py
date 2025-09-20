@@ -18,7 +18,7 @@ import shutil
 import base64
 from PIL import Image
 
-# --- برمجة ahmed si (تم إصلاح خطأ تحليل JSON بواسطة Gemini v23.4) ---
+# --- برمجة ahmed si (تم الإصلاح النهائي لتحليل Gemini JSON بواسطة Gemini v23.5) ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -137,22 +137,18 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
     prompt = f"""
     You are an expert API that returns only JSON. Do not write any conversational text, explanations, or apologies.
     Your entire response must be a single, valid JSON object enclosed in ```json markdown tags.
-
     **Task:**
     Based on the following recipe data, generate a professional, SEO-optimized Medium article.
-    
     **Input Data:**
     - Title: "{title}"
     - Content Snippet: "{clean_content[:1500]}"
     - Source Link: "{original_link}"
-
     **JSON Output Structure:**
     Create a JSON object with the following keys:
     - "new_title": A new, engaging, SEO-friendly title (around 8-12 words).
     - "new_html_content": A 600-700 word article in clean, valid HTML. The article must be engaging, well-structured with h2/h3 tags, paragraphs, and lists.
     - "tags": An array of 5 relevant string tags for Medium.
     - "alt_texts": An array of 2 descriptive string alt texts for the images.
-
     **Crucial Instruction:**
     Within the "new_html_content" value, you MUST insert two image placeholders exactly as written:
     1. `<!-- IMAGE 1 PLACEHOLDER -->` after the introduction.
@@ -168,7 +164,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         response.raise_for_status()
         response_json = response.json()
         
-        # --- *** الإصلاح: الوصول الصحيح إلى بنية الرد الخاصة بـ Gemini *** ---
+        # --- *** الإصلاح النهائي: العودة إلى الطريقة الصحيحة لتحليل الرد *** ---
         raw_text = response_json['candidates']['content']['parts']['text']
 
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
@@ -191,7 +187,7 @@ def rewrite_content_with_gemini(title, content_html, original_link, image_urls):
         return None
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v23.4 (إصلاح تحليل JSON) ---")
+    print("--- بدء تشغيل الروبوت الناشر v23.5 (إصلاح تحليل Gemini) ---")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -214,7 +210,10 @@ def main():
         
         original_title, original_link = post_to_publish.title, post_to_publish.link
         scraped_image_urls = scrape_images_from_article(original_link, driver)
-        original_content_html = post_to_publish.content.value if 'content' in post_to_publish and post_to_publish.content else post_to_publish.summary
+        original_content_html = post_to_publish.summary
+        if hasattr(post_to_publish, 'content') and post_to_publish.content:
+            original_content_html = post_to_publish.content.value
+            
         rewritten_data = rewrite_content_with_gemini(original_title, original_content_html, original_link, scraped_image_urls)
         
         if not rewritten_data: 
