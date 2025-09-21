@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة النهائية v26 مع Selenium للكشط ---
+# --- برمجة ahmed si - النسخة المحسنة v27 ---
 
 RSS_URL = "https://Fastyummyfood.com/feed"
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -53,9 +53,23 @@ def extract_image_url_from_entry(entry):
     if match: return match.group(1)
     return None
 
-def scrape_images_with_selenium(article_url):
-    """كشط الصور باستخدام Selenium (يشغل JavaScript)"""
-    print(f"--- 🔍 كشط الصور بـ Selenium من: {article_url}")
+def is_valid_article_image(url):
+    """التحقق من أن الصورة صالحة للمقال (ليست صورة مؤلف أو أيقونة)"""
+    # استبعاد الصور الصغيرة جداً
+    if any(x in url for x in ['width=16', 'width=32', 'width=48', 'width=64', 'width=96', 'width=128', 'width=160']):
+        return False
+    
+    # استبعاد صور المؤلفين والأيقونات
+    exclude_keywords = ['avatar', 'author', 'profile', 'logo', 'icon', 'thumbnail', 'thumb']
+    if any(keyword in url.lower() for keyword in exclude_keywords):
+        return False
+    
+    # قبول فقط الصور الكبيرة أو بدون تحديد حجم
+    return True
+
+def scrape_article_images_only(article_url):
+    """كشط الصور من داخل منطقة article فقط"""
+    print(f"--- 🔍 كشط صور المقال بـ Selenium من: {article_url}")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -68,7 +82,6 @@ def scrape_images_with_selenium(article_url):
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     
-    # إضافة stealth للتخفي
     stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -83,23 +96,37 @@ def scrape_images_with_selenium(article_url):
         print("    ⏳ تحميل الصفحة...")
         driver.get(article_url)
         
-        # انتظار تحميل الصور
-        time.sleep(3)
+        # انتظار تحميل المقال
+        wait = WebDriverWait(driver, 10)
+        try:
+            article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.article")))
+        except:
+            # إذا لم نجد article.article، جرب article فقط
+            try:
+                article_element = wait.until(EC.presence_of_element_located((By.TAG_NAME, "article")))
+            except:
+                print("    ⚠️ لم أجد عنصر article، سأبحث في الصفحة كاملة")
+                article_element = driver.find_element(By.TAG_NAME, "body")
         
-        # محاولة التمرير لتحميل الصور الكسولة
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+        # التمرير لتحميل الصور الكسولة
+        driver.execute_script("arguments[0].scrollIntoView();", article_element)
         time.sleep(1)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        
+        # التمرير داخل المقال
+        driver.execute_script("""
+            var article = arguments[0];
+            article.scrollTop = article.scrollHeight / 2;
+        """, article_element)
         time.sleep(1)
         
-        print("    🔎 البحث عن الصور في الصفحة...")
+        print("    🔎 البحث عن الصور داخل المقال...")
         
-        # البحث عن كل عناصر img
-        img_elements = driver.find_elements(By.TAG_NAME, "img")
+        # البحث عن كل الصور داخل article فقط
+        img_elements = article_element.find_elements(By.TAG_NAME, "img")
         
         for img in img_elements:
             try:
-                # جرب الحصول على src
+                # جرب الحصول على المصادر المختلفة
                 src = img.get_attribute("src")
                 if not src:
                     src = img.get_attribute("data-src")
@@ -107,16 +134,21 @@ def scrape_images_with_selenium(article_url):
                     src = img.get_attribute("data-lazy-src")
                 if not src:
                     src = img.get_attribute("data-original")
-                
-                # أيضاً جرب currentSrc للصور التي تم تحميلها
                 if not src:
                     src = driver.execute_script("return arguments[0].currentSrc;", img)
                 
-                if src and ("/assets/images/" in src or "fastyummyfood" in src.lower()):
-                    # تنظيف الرابط
-                    clean_url = src.split('?')[0]
+                if src and "/assets/images/" in src:
+                    # تنظيف الرابط من CDN parameters
+                    clean_url = src
                     
-                    # تحويل إلى رابط مطلق إذا لزم
+                    # إذا كان رابط CDN، حاول استخراج الرابط الأصلي
+                    if "/cdn-cgi/image/" in clean_url:
+                        # استخراج الرابط الأصلي من CDN URL
+                        match = re.search(r'/assets/images/[^/\s]+', clean_url)
+                        if match:
+                            clean_url = "https://fastyummyfood.com" + match.group()
+                    
+                    # تحويل إلى رابط مطلق
                     if not clean_url.startswith("http"):
                         if clean_url.startswith("//"):
                             clean_url = "https:" + clean_url
@@ -124,18 +156,41 @@ def scrape_images_with_selenium(article_url):
                             from urllib.parse import urljoin
                             clean_url = urljoin(article_url, clean_url)
                     
-                    # تجنب التكرار والصور الصغيرة
-                    if clean_url not in images and not any(x in clean_url.lower() for x in ['logo', 'icon', 'avatar']):
+                    # التحقق من صلاحية الصورة
+                    if is_valid_article_image(clean_url) and clean_url not in images:
                         images.append(clean_url)
-                        print(f"    ✓ وجدت صورة: {clean_url[:60]}...")
+                        print(f"    ✓ صورة مقال: {clean_url[:60]}...")
                         
             except Exception as e:
                 continue
         
-        # البحث في article tag بشكل خاص
-        try:
-            article_element = driver.find_element(By.TAG_NAME, "article")
-            # البحث عن صور background في CSS
+        # البحث في source tags داخل article (للـ picture elements)
+        source_elements = article_element.find_elements(By.TAG_NAME, "source")
+        for source in source_elements:
+            try:
+                srcset = source.get_attribute("srcset")
+                if srcset and "/assets/images/" in srcset:
+                    # استخراج أكبر رابط من srcset
+                    urls_in_srcset = re.findall(r'([^\s,]+)', srcset)
+                    for url in urls_in_srcset:
+                        if "/assets/images/" in url and not any(x in url for x in ['width=48', 'width=96', 'width=160']):
+                            if "/cdn-cgi/image/" in url:
+                                match = re.search(r'/assets/images/[^/\s]+', url)
+                                if match:
+                                    url = "https://fastyummyfood.com" + match.group()
+                            
+                            if not url.startswith("http"):
+                                from urllib.parse import urljoin
+                                url = urljoin(article_url, url)
+                            
+                            if is_valid_article_image(url) and url not in images:
+                                images.append(url)
+                                print(f"    ✓ صورة من srcset: {url[:60]}...")
+            except:
+                continue
+        
+        # إذا لم نجد صور كافية، ابحث عن صور الخلفية CSS
+        if len(images) < 2:
             all_elements = article_element.find_elements(By.XPATH, ".//*")
             for elem in all_elements:
                 try:
@@ -149,35 +204,18 @@ def scrape_images_with_selenium(article_url):
                         return null;
                     """, elem)
                     
-                    if bg_image and "/assets/images/" in bg_image and bg_image not in images:
-                        images.append(bg_image)
-                        print(f"    ✓ وجدت صورة خلفية: {bg_image[:60]}...")
-                except:
-                    continue
-        except:
-            pass
-        
-        # إذا لم نجد صور، جرب البحث في source tags (للـ picture elements)
-        if len(images) < 2:
-            source_elements = driver.find_elements(By.TAG_NAME, "source")
-            for source in source_elements:
-                try:
-                    srcset = source.get_attribute("srcset")
-                    if srcset:
-                        # استخرج أول رابط من srcset
-                        first_url = re.search(r'([^\s,]+)', srcset)
-                        if first_url:
-                            url = first_url.group(1)
-                            if "/assets/images/" in url and url not in images:
-                                if not url.startswith("http"):
-                                    from urllib.parse import urljoin
-                                    url = urljoin(article_url, url)
-                                images.append(url)
-                                print(f"    ✓ وجدت صورة من source: {url[:60]}...")
+                    if bg_image and "/assets/images/" in bg_image:
+                        if not bg_image.startswith("http"):
+                            from urllib.parse import urljoin
+                            bg_image = urljoin(article_url, bg_image)
+                        
+                        if is_valid_article_image(bg_image) and bg_image not in images:
+                            images.append(bg_image)
+                            print(f"    ✓ صورة خلفية: {bg_image[:60]}...")
                 except:
                     continue
         
-        print(f"--- ✅ تم العثور على {len(images)} صورة باستخدام Selenium")
+        print(f"--- ✅ تم العثور على {len(images)} صورة صالحة من المقال")
         
     except Exception as e:
         print(f"--- ⚠️ خطأ في Selenium: {e}")
@@ -188,17 +226,19 @@ def scrape_images_with_selenium(article_url):
 
 def get_best_images_for_article(article_url, rss_image=None):
     """الحصول على أفضل صورتين للمقال"""
-    # استخدام Selenium للكشط
-    scraped_images = scrape_images_with_selenium(article_url)
+    # كشط الصور من المقال
+    scraped_images = scrape_article_images_only(article_url)
     
     all_images = []
     
-    # إضافة الصور المكشوطة أولاً (لها الأولوية)
+    # إضافة الصور المكشوطة أولاً
     all_images.extend(scraped_images)
     
-    # إضافة صورة RSS كخيار احتياطي
+    # إضافة صورة RSS كخيار احتياطي فقط
     if rss_image and rss_image not in all_images:
-        all_images.append(rss_image)
+        # التحقق من أن صورة RSS صالحة أيضاً
+        if is_valid_article_image(rss_image):
+            all_images.append(rss_image)
     
     # إزالة التكرارات
     unique_images = []
@@ -211,7 +251,7 @@ def get_best_images_for_article(article_url, rss_image=None):
     # اختيار صورتين مختلفتين
     if len(unique_images) >= 2:
         image1 = unique_images[0]
-        # محاولة الحصول على صورة مختلفة
+        # اختر صورة مختلفة للموضع الثاني
         if len(unique_images) >= 3:
             image2 = unique_images[2]  # تخطي الثانية للتنوع
         else:
@@ -219,6 +259,7 @@ def get_best_images_for_article(article_url, rss_image=None):
     elif len(unique_images) == 1:
         image1 = image2 = unique_images[0]
     else:
+        # لا توجد صور صالحة
         image1 = image2 = None
     
     return image1, image2
@@ -297,16 +338,16 @@ def prepare_html_with_multiple_images(content_html, image1, image2, original_lin
     # إعداد HTML للصورة الأولى
     if image1:
         image1_html = f'<img src="{image1}" alt="Recipe preparation">'
-        image1_with_caption = f'{image1_html}<p><em>Step-by-step preparation process</em></p>'
+        image1_with_caption = f'{image1_html}<p><em>Delicious homemade recipe preparation</em></p>'
     else:
         image1_with_caption = ""
     
     # إعداد HTML للصورة الثانية  
     if image2:
         if image2 == image1:
-            caption2 = "Another view of this delicious recipe"
+            caption2 = "Another view of this amazing dish"
         else:
-            caption2 = "The delicious final result!"
+            caption2 = "The final result - absolutely delicious!"
         image2_html = f'<img src="{image2}" alt="Final dish">'
         image2_with_caption = f'{image2_html}<p><em>{caption2}</em></p>'
     else:
@@ -318,12 +359,12 @@ def prepare_html_with_multiple_images(content_html, image1, image2, original_lin
     
     # إضافة رابط المصدر
     site_name = "Fastyummyfood.com"
-    call_to_action = f'<br><p><strong>For the complete recipe with detailed instructions, visit <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
+    call_to_action = f'<br><p><strong>For the complete recipe with step-by-step instructions and tips, visit <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
     
     return content_html + call_to_action
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v26 (مع Selenium للكشط) ---")
+    print("--- بدء تشغيل الروبوت الناشر v27 (كشط محسّن من article) ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -335,7 +376,7 @@ def main():
     # استخراج صورة RSS
     rss_image = extract_image_url_from_entry(post_to_publish)
     if rss_image:
-        print(f"--- 📷 صورة RSS: {rss_image[:80]}...")
+        print(f"--- 📷 صورة RSS احتياطية: {rss_image[:80]}...")
     
     # الحصول على الصور من المقال
     image1, image2 = get_best_images_for_article(original_link, rss_image)
@@ -346,7 +387,7 @@ def main():
         print(f"--- 🖼️ الصورة الثانية للنشر: {image2[:80]}...")
     
     if not image1:
-        print("--- ⚠️ لم يتم العثور على أي صور!")
+        print("--- ⚠️ لم يتم العثور على صور صالحة للمقال!")
     
     # الحصول على المحتوى الأصلي
     original_content_html = ""
@@ -483,7 +524,7 @@ def main():
         time.sleep(15)
         
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح! 🎉🎉🎉")
+        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح مع الصور الصحيحة! 🎉🎉🎉")
         
     except Exception as e:
         print(f"!!! خطأ: {e}")
