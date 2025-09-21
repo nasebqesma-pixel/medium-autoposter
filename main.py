@@ -13,9 +13,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة المحسنة v27 ---
+# --- برمجة ahmed si - النسخة v28 مع Alt Text ---
 
-RSS_URL = "https://Fastyummyfood.com/feed"
+# ====== إعدادات الموقع - غيّر هنا فقط ======
+SITE_NAME = "Fastyummyfood"  # اسم الموقع بدون .com
+SITE_DOMAIN = f"{SITE_NAME}.com"
+RSS_URL = f"https://{SITE_DOMAIN}/feed"
+# ==========================================
+
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -54,21 +59,18 @@ def extract_image_url_from_entry(entry):
     return None
 
 def is_valid_article_image(url):
-    """التحقق من أن الصورة صالحة للمقال (ليست صورة مؤلف أو أيقونة)"""
-    # استبعاد الصور الصغيرة جداً
+    """التحقق من أن الصورة صالحة للمقال"""
     if any(x in url for x in ['width=16', 'width=32', 'width=48', 'width=64', 'width=96', 'width=128', 'width=160']):
         return False
     
-    # استبعاد صور المؤلفين والأيقونات
     exclude_keywords = ['avatar', 'author', 'profile', 'logo', 'icon', 'thumbnail', 'thumb']
     if any(keyword in url.lower() for keyword in exclude_keywords):
         return False
     
-    # قبول فقط الصور الكبيرة أو بدون تحديد حجم
     return True
 
-def scrape_article_images_only(article_url):
-    """كشط الصور من داخل منطقة article فقط"""
+def scrape_article_images_with_alt(article_url):
+    """كشط الصور مع نصوص alt من داخل المقال"""
     print(f"--- 🔍 كشط صور المقال بـ Selenium من: {article_url}")
     
     options = webdriver.ChromeOptions()
@@ -90,43 +92,37 @@ def scrape_article_images_only(article_url):
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True)
     
-    images = []
+    images_data = []  # سنحفظ الصور مع alt text
     
     try:
         print("    ⏳ تحميل الصفحة...")
         driver.get(article_url)
         
-        # انتظار تحميل المقال
         wait = WebDriverWait(driver, 10)
         try:
             article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.article")))
         except:
-            # إذا لم نجد article.article، جرب article فقط
             try:
                 article_element = wait.until(EC.presence_of_element_located((By.TAG_NAME, "article")))
             except:
-                print("    ⚠️ لم أجد عنصر article، سأبحث في الصفحة كاملة")
+                print("    ⚠️ لم أجد عنصر article")
                 article_element = driver.find_element(By.TAG_NAME, "body")
         
-        # التمرير لتحميل الصور الكسولة
+        # التمرير لتحميل الصور
         driver.execute_script("arguments[0].scrollIntoView();", article_element)
         time.sleep(1)
-        
-        # التمرير داخل المقال
         driver.execute_script("""
             var article = arguments[0];
             article.scrollTop = article.scrollHeight / 2;
         """, article_element)
         time.sleep(1)
         
-        print("    🔎 البحث عن الصور داخل المقال...")
+        print("    🔎 البحث عن الصور وalt text...")
         
-        # البحث عن كل الصور داخل article فقط
         img_elements = article_element.find_elements(By.TAG_NAME, "img")
         
         for img in img_elements:
             try:
-                # جرب الحصول على المصادر المختلفة
                 src = img.get_attribute("src")
                 if not src:
                     src = img.get_attribute("data-src")
@@ -137,18 +133,21 @@ def scrape_article_images_only(article_url):
                 if not src:
                     src = driver.execute_script("return arguments[0].currentSrc;", img)
                 
+                # الحصول على alt text
+                alt_text = img.get_attribute("alt")
+                if not alt_text:
+                    alt_text = img.get_attribute("title")
+                if not alt_text:
+                    alt_text = ""
+                
                 if src and "/assets/images/" in src:
-                    # تنظيف الرابط من CDN parameters
                     clean_url = src
                     
-                    # إذا كان رابط CDN، حاول استخراج الرابط الأصلي
                     if "/cdn-cgi/image/" in clean_url:
-                        # استخراج الرابط الأصلي من CDN URL
                         match = re.search(r'/assets/images/[^/\s]+', clean_url)
                         if match:
-                            clean_url = "https://fastyummyfood.com" + match.group()
+                            clean_url = f"https://{SITE_DOMAIN}" + match.group()
                     
-                    # تحويل إلى رابط مطلق
                     if not clean_url.startswith("http"):
                         if clean_url.startswith("//"):
                             clean_url = "https:" + clean_url
@@ -156,121 +155,127 @@ def scrape_article_images_only(article_url):
                             from urllib.parse import urljoin
                             clean_url = urljoin(article_url, clean_url)
                     
-                    # التحقق من صلاحية الصورة
-                    if is_valid_article_image(clean_url) and clean_url not in images:
-                        images.append(clean_url)
-                        print(f"    ✓ صورة مقال: {clean_url[:60]}...")
+                    if is_valid_article_image(clean_url):
+                        # حفظ الصورة مع alt text
+                        image_exists = False
+                        for img_data in images_data:
+                            if img_data['url'] == clean_url:
+                                image_exists = True
+                                break
+                        
+                        if not image_exists:
+                            images_data.append({
+                                'url': clean_url,
+                                'alt': alt_text
+                            })
+                            print(f"    ✓ صورة: {clean_url[:50]}... | Alt: {alt_text[:30]}...")
                         
             except Exception as e:
                 continue
         
-        # البحث في source tags داخل article (للـ picture elements)
+        # البحث في source tags
         source_elements = article_element.find_elements(By.TAG_NAME, "source")
         for source in source_elements:
             try:
                 srcset = source.get_attribute("srcset")
                 if srcset and "/assets/images/" in srcset:
-                    # استخراج أكبر رابط من srcset
                     urls_in_srcset = re.findall(r'([^\s,]+)', srcset)
                     for url in urls_in_srcset:
                         if "/assets/images/" in url and not any(x in url for x in ['width=48', 'width=96', 'width=160']):
                             if "/cdn-cgi/image/" in url:
                                 match = re.search(r'/assets/images/[^/\s]+', url)
                                 if match:
-                                    url = "https://fastyummyfood.com" + match.group()
+                                    url = f"https://{SITE_DOMAIN}" + match.group()
                             
                             if not url.startswith("http"):
                                 from urllib.parse import urljoin
                                 url = urljoin(article_url, url)
                             
-                            if is_valid_article_image(url) and url not in images:
-                                images.append(url)
-                                print(f"    ✓ صورة من srcset: {url[:60]}...")
+                            if is_valid_article_image(url):
+                                image_exists = False
+                                for img_data in images_data:
+                                    if img_data['url'] == url:
+                                        image_exists = True
+                                        break
+                                
+                                if not image_exists:
+                                    # جرب الحصول على alt من الـ picture parent
+                                    alt_text = ""
+                                    try:
+                                        picture = source.find_element(By.XPATH, "..")
+                                        img_in_picture = picture.find_element(By.TAG_NAME, "img")
+                                        alt_text = img_in_picture.get_attribute("alt") or ""
+                                    except:
+                                        pass
+                                    
+                                    images_data.append({
+                                        'url': url,
+                                        'alt': alt_text
+                                    })
+                                    print(f"    ✓ صورة من srcset: {url[:50]}...")
             except:
                 continue
         
-        # إذا لم نجد صور كافية، ابحث عن صور الخلفية CSS
-        if len(images) < 2:
-            all_elements = article_element.find_elements(By.XPATH, ".//*")
-            for elem in all_elements:
-                try:
-                    bg_image = driver.execute_script("""
-                        var style = window.getComputedStyle(arguments[0]);
-                        var bg = style.getPropertyValue('background-image');
-                        if (bg && bg !== 'none') {
-                            var match = bg.match(/url\KATEX_INLINE_OPEN['\"]?([^'\"\KATEX_INLINE_CLOSE]+)['\"]?\KATEX_INLINE_CLOSE/);
-                            return match ? match[1] : null;
-                        }
-                        return null;
-                    """, elem)
-                    
-                    if bg_image and "/assets/images/" in bg_image:
-                        if not bg_image.startswith("http"):
-                            from urllib.parse import urljoin
-                            bg_image = urljoin(article_url, bg_image)
-                        
-                        if is_valid_article_image(bg_image) and bg_image not in images:
-                            images.append(bg_image)
-                            print(f"    ✓ صورة خلفية: {bg_image[:60]}...")
-                except:
-                    continue
-        
-        print(f"--- ✅ تم العثور على {len(images)} صورة صالحة من المقال")
+        print(f"--- ✅ تم العثور على {len(images_data)} صورة صالحة من المقال")
         
     except Exception as e:
         print(f"--- ⚠️ خطأ في Selenium: {e}")
     finally:
         driver.quit()
     
-    return images
+    return images_data
 
 def get_best_images_for_article(article_url, rss_image=None):
-    """الحصول على أفضل صورتين للمقال"""
-    # كشط الصور من المقال
-    scraped_images = scrape_article_images_only(article_url)
+    """الحصول على أفضل صورتين مع alt text"""
+    scraped_images_data = scrape_article_images_with_alt(article_url)
     
-    all_images = []
+    all_images_data = []
     
-    # إضافة الصور المكشوطة أولاً
-    all_images.extend(scraped_images)
+    # إضافة الصور المكشوطة
+    all_images_data.extend(scraped_images_data)
     
-    # إضافة صورة RSS كخيار احتياطي فقط
-    if rss_image and rss_image not in all_images:
-        # التحقق من أن صورة RSS صالحة أيضاً
-        if is_valid_article_image(rss_image):
-            all_images.append(rss_image)
-    
-    # إزالة التكرارات
-    unique_images = []
-    seen = set()
-    for img in all_images:
-        if img not in seen:
-            unique_images.append(img)
-            seen.add(img)
+    # إضافة صورة RSS كاحتياطي
+    if rss_image and is_valid_article_image(rss_image):
+        rss_exists = False
+        for img_data in all_images_data:
+            if img_data['url'] == rss_image:
+                rss_exists = True
+                break
+        
+        if not rss_exists:
+            all_images_data.append({
+                'url': rss_image,
+                'alt': 'Featured recipe image'
+            })
     
     # اختيار صورتين مختلفتين
-    if len(unique_images) >= 2:
-        image1 = unique_images[0]
-        # اختر صورة مختلفة للموضع الثاني
-        if len(unique_images) >= 3:
-            image2 = unique_images[2]  # تخطي الثانية للتنوع
+    if len(all_images_data) >= 2:
+        image1_data = all_images_data[0]
+        if len(all_images_data) >= 3:
+            image2_data = all_images_data[2]
         else:
-            image2 = unique_images[1]
-    elif len(unique_images) == 1:
-        image1 = image2 = unique_images[0]
+            image2_data = all_images_data[1]
+    elif len(all_images_data) == 1:
+        image1_data = image2_data = all_images_data[0]
     else:
-        # لا توجد صور صالحة
-        image1 = image2 = None
+        image1_data = image2_data = None
     
-    return image1, image2
+    return image1_data, image2_data
 
-def rewrite_content_with_gemini(title, content_html, original_link):
+def rewrite_content_with_gemini(title, content_html, original_link, image1_alt="", image2_alt=""):
     if not GEMINI_API_KEY:
         print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
 
     print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
     clean_content = re.sub('<[^<]+?>', ' ', content_html)
+    
+    # إضافة معلومات alt text إلى البرومبت
+    alt_info = ""
+    if image1_alt:
+        alt_info += f"\n- Image 1 description: {image1_alt}"
+    if image2_alt and image2_alt != image1_alt:
+        alt_info += f"\n- Image 2 description: {image2_alt}"
     
     prompt = """
     You are a professional SEO copywriter for Medium.
@@ -279,7 +284,7 @@ def rewrite_content_with_gemini(title, content_html, original_link):
     **Original Data:**
     - Original Title: "%s"
     - Original Content: "%s"
-    - Link to full recipe: "%s"
+    - Link to full recipe: "%s"%s
 
     **Requirements:**
     1. **New Title:** Create an engaging, SEO-optimized title (60-70 characters)
@@ -295,13 +300,16 @@ def rewrite_content_with_gemini(title, content_html, original_link):
          * INSERT_IMAGE_2_HERE (in the middle section of the article)
     3. **Call to Action:** End with a natural link to the original recipe
     4. **Tags:** Suggest 5 relevant Medium tags
+    5. **Image Captions:** If you have image descriptions, create engaging captions that relate to them
 
     **Output Format:**
     Return ONLY a valid JSON object with these keys:
     - "new_title": The new title
     - "new_html_content": The HTML content with INSERT_IMAGE_1_HERE and INSERT_IMAGE_2_HERE placeholders
     - "tags": Array of 5 tags
-    """ % (title, clean_content[:1500], original_link)
+    - "caption1": A short engaging caption for the first image (if applicable)
+    - "caption2": A short engaging caption for the second image (if applicable)
+    """ % (title, clean_content[:1500], original_link, alt_info)
     
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
@@ -324,32 +332,58 @@ def rewrite_content_with_gemini(title, content_html, original_link):
             return {
                 "title": result.get("new_title", title),
                 "content": result.get("new_html_content", content_html),
-                "tags": result.get("tags", [])
+                "tags": result.get("tags", []),
+                "caption1": result.get("caption1", ""),
+                "caption2": result.get("caption2", "")
             }
     except Exception as e:
         print(f"!!! خطأ في Gemini: {e}")
         return None
 
-def prepare_html_with_multiple_images(content_html, image1, image2, original_link):
-    """إعداد HTML النهائي مع صورتين"""
+def prepare_html_with_multiple_images(content_html, image1_data, image2_data, original_link, caption1="", caption2=""):
+    """إعداد HTML النهائي مع الصور وalt text"""
     
     print("--- 🎨 إعداد المحتوى النهائي مع الصور...")
     
     # إعداد HTML للصورة الأولى
-    if image1:
-        image1_html = f'<img src="{image1}" alt="Recipe preparation">'
-        image1_with_caption = f'{image1_html}<p><em>Delicious homemade recipe preparation</em></p>'
+    if image1_data:
+        alt1 = image1_data['alt'] or "Recipe preparation"
+        # إضافة اسم الموقع لـ alt text
+        full_alt1 = f"{alt1} | {SITE_DOMAIN}" if alt1 else f"Recipe image | {SITE_DOMAIN}"
+        
+        image1_html = f'<img src="{image1_data["url"]}" alt="{full_alt1}">'
+        
+        # استخدام caption من Gemini أو alt text
+        if caption1:
+            image_caption1 = caption1
+        elif image1_data['alt']:
+            image_caption1 = f"{image1_data['alt']} | {SITE_DOMAIN}"
+        else:
+            image_caption1 = f"Step-by-step preparation | {SITE_DOMAIN}"
+        
+        image1_with_caption = f'{image1_html}<p><em>{image_caption1}</em></p>'
     else:
         image1_with_caption = ""
     
-    # إعداد HTML للصورة الثانية  
-    if image2:
-        if image2 == image1:
-            caption2 = "Another view of this amazing dish"
+    # إعداد HTML للصورة الثانية
+    if image2_data:
+        alt2 = image2_data['alt'] or "Final dish"
+        # إضافة اسم الموقع لـ alt text
+        full_alt2 = f"{alt2} | {SITE_DOMAIN}" if alt2 else f"Recipe result | {SITE_DOMAIN}"
+        
+        image2_html = f'<img src="{image2_data["url"]}" alt="{full_alt2}">'
+        
+        # استخدام caption من Gemini أو alt text
+        if caption2:
+            image_caption2 = caption2
+        elif image2_data['alt'] and image2_data['alt'] != image1_data.get('alt', ''):
+            image_caption2 = f"{image2_data['alt']} | {SITE_DOMAIN}"
+        elif image2_data['url'] == image1_data.get('url', ''):
+            image_caption2 = f"Another view of this delicious recipe | {SITE_DOMAIN}"
         else:
-            caption2 = "The final result - absolutely delicious!"
-        image2_html = f'<img src="{image2}" alt="Final dish">'
-        image2_with_caption = f'{image2_html}<p><em>{caption2}</em></p>'
+            image_caption2 = f"The final result - absolutely delicious! | {SITE_DOMAIN}"
+        
+        image2_with_caption = f'{image2_html}<p><em>{image_caption2}</em></p>'
     else:
         image2_with_caption = ""
     
@@ -358,13 +392,12 @@ def prepare_html_with_multiple_images(content_html, image1, image2, original_lin
     content_html = content_html.replace("INSERT_IMAGE_2_HERE", image2_with_caption)
     
     # إضافة رابط المصدر
-    site_name = "Fastyummyfood.com"
-    call_to_action = f'<br><p><strong>For the complete recipe with step-by-step instructions and tips, visit <a href="{original_link}" rel="noopener" target="_blank">{site_name}</a>.</strong></p>'
+    call_to_action = f'<br><p><strong>For the complete recipe with step-by-step instructions and tips, visit <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</strong></p>'
     
     return content_html + call_to_action
 
 def main():
-    print("--- بدء تشغيل الروبوت الناشر v27 (كشط محسّن من article) ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v28 (مع Alt Text) لموقع {SITE_DOMAIN} ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -378,15 +411,19 @@ def main():
     if rss_image:
         print(f"--- 📷 صورة RSS احتياطية: {rss_image[:80]}...")
     
-    # الحصول على الصور من المقال
-    image1, image2 = get_best_images_for_article(original_link, rss_image)
+    # الحصول على الصور مع alt text
+    image1_data, image2_data = get_best_images_for_article(original_link, rss_image)
     
-    if image1:
-        print(f"--- 🖼️ الصورة الأولى للنشر: {image1[:80]}...")
-    if image2:
-        print(f"--- 🖼️ الصورة الثانية للنشر: {image2[:80]}...")
+    if image1_data:
+        print(f"--- 🖼️ الصورة الأولى: {image1_data['url'][:60]}...")
+        if image1_data['alt']:
+            print(f"      Alt: {image1_data['alt'][:50]}...")
+    if image2_data:
+        print(f"--- 🖼️ الصورة الثانية: {image2_data['url'][:60]}...")
+        if image2_data['alt']:
+            print(f"      Alt: {image2_data['alt'][:50]}...")
     
-    if not image1:
+    if not image1_data:
         print("--- ⚠️ لم يتم العثور على صور صالحة للمقال!")
     
     # الحصول على المحتوى الأصلي
@@ -397,37 +434,48 @@ def main():
         original_content_html = post_to_publish.summary
 
     # تحسين المحتوى باستخدام Gemini
+    image1_alt = image1_data['alt'] if image1_data else ""
+    image2_alt = image2_data['alt'] if image2_data else ""
+    
     rewritten_data = rewrite_content_with_gemini(
-        original_title, original_content_html, original_link
+        original_title, original_content_html, original_link, image1_alt, image2_alt
     )
     
     if rewritten_data:
         final_title = rewritten_data["title"]
         ai_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
+        caption1 = rewritten_data.get("caption1", "")
+        caption2 = rewritten_data.get("caption2", "")
         
         # إعداد المحتوى النهائي
         full_html_content = prepare_html_with_multiple_images(
-            ai_content, image1, image2, original_link
+            ai_content, image1_data, image2_data, original_link, caption1, caption2
         )
-        print("--- ✅ تم إعداد المحتوى المُحسّن مع الصور.")
+        print("--- ✅ تم إعداد المحتوى المُحسّن مع الصور وalt text.")
     else:
         print("--- ⚠️ سيتم استخدام المحتوى الأصلي.")
         final_title = original_title
         ai_tags = []
         
-        if image1:
-            image1_html = f'<img src="{image1}">'
+        if image1_data:
+            alt1 = f"{image1_data['alt']} | {SITE_DOMAIN}" if image1_data['alt'] else f"Recipe image | {SITE_DOMAIN}"
+            image1_html = f'<img src="{image1_data["url"]}" alt="{alt1}">'
+            caption1 = f"<p><em>{alt1}</em></p>"
         else:
             image1_html = ""
+            caption1 = ""
         
-        if image2 and image2 != image1:
-            image2_html = f'<br><img src="{image2}">'
+        if image2_data and image2_data['url'] != image1_data.get('url', ''):
+            alt2 = f"{image2_data['alt']} | {SITE_DOMAIN}" if image2_data['alt'] else f"Recipe detail | {SITE_DOMAIN}"
+            image2_html = f'<br><img src="{image2_data["url"]}" alt="{alt2}">'
+            caption2 = f"<p><em>{alt2}</em></p>"
         else:
             image2_html = ""
+            caption2 = ""
         
-        link_html = f'<br><p><em>For the full recipe, visit <a href="{original_link}" rel="noopener" target="_blank">Fastyummyfood.com</a>.</em></p>'
-        full_html_content = image1_html + original_content_html + image2_html + link_html
+        link_html = f'<br><p><em>For the full recipe, visit <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</em></p>'
+        full_html_content = image1_html + caption1 + original_content_html + image2_html + caption2 + link_html
 
     # --- النشر على Medium ---
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
@@ -524,7 +572,7 @@ def main():
         time.sleep(15)
         
         add_posted_link(post_to_publish.link)
-        print(">>> 🎉🎉🎉 تم نشر المقال بنجاح مع الصور الصحيحة! 🎉🎉🎉")
+        print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
         
     except Exception as e:
         print(f"!!! خطأ: {e}")
