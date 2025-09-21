@@ -13,10 +13,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة v28 مع Alt Text ---
+# --- برمجة ahmed si - النسخة v28 ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
-SITE_NAME = "Fastyummyfood"  # اسم الموقع بدون .com
+SITE_NAME = "Fastyummyfood"  # <<<<<  .com اسم الموقع بدون 
 SITE_DOMAIN = f"{SITE_NAME}.com"
 RSS_URL = f"https://{SITE_DOMAIN}/feed"
 # ==========================================
