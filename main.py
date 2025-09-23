@@ -352,7 +352,7 @@ def create_final_cta(original_link):
         <li>Nutritional information</li>
         <li>Storage and serving suggestions</li>
     </ul>
-    <p><strong>👇 Visit <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a> for the full recipe and more delicious ideas!</strong></p>
+    <p><strong>👉 Visit <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a> for the full recipe and more delicious ideas!</strong></p>
     '''
     return final_cta
 
