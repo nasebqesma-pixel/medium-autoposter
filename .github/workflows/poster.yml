@@ -2,7 +2,7 @@ name: Medium Auto Poster
 
 on:
   schedule:
-    - cron: "0 16,0,3 * * *"
+  - cron: "0 0,2,4 * * *"    # 7pm  9pm  11pm  توقيت النشر
   workflow_dispatch:
 
 permissions:
